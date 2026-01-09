@@ -28,7 +28,7 @@ class LLMClinet:
 
         client = self.get_client()
         kwargs = {
-            "model": "mistralai/devstral-2512:eee",
+            "model": "mistralai/devstral-2512:free",
             "messages": messages,
             # "temperature": 0.7,
             # "top_p": 0.9,
@@ -40,7 +40,7 @@ class LLMClinet:
             try:
                 # Make the API call first to catch exceptions before streaming
                 response = await client.chat.completions.create(**kwargs)
-                
+
                 if stream:
                     async for event in self._process_stream_response(response):
                         yield event
@@ -50,7 +50,7 @@ class LLMClinet:
                 return
             except RateLimitError as e:
                 if attempt < self._max_rate_limit_retries:
-                    print(f"[Retry {attempt + 1}/{self._max_rate_limit_retries}] Rate limit hit, retrying...")
+
                     await asyncio.sleep(2**attempt)  # Exponential backoff
                     continue
                 else:
@@ -61,7 +61,7 @@ class LLMClinet:
                     return
             except APIConnectionError as e:
                 if attempt < self._max_rate_limit_retries:
-                    print(f"[Retry {attempt + 1}/{self._max_rate_limit_retries}] Connection error, retrying...")
+
                     await asyncio.sleep(2**attempt)  # Exponential backoff
                     continue
                 else:
@@ -72,7 +72,7 @@ class LLMClinet:
                     return
             except APIError as e:
                 if attempt < self._max_rate_limit_retries:
-                    print(f"[Retry {attempt + 1}/{self._max_rate_limit_retries}] API error, retrying...")
+
                     await asyncio.sleep(2**attempt)  # Exponential backoff
                     continue
                 else:
@@ -127,9 +127,7 @@ class LLMClinet:
         )
 
     # Private method to process normal (non-streaming) responses (response already created)
-    async def _process_normal_response(
-        self, response
-    ) -> StreamEvent:
+    async def _process_normal_response(self, response) -> StreamEvent:
         choice = response.choices[0]
         message = choice.message
         text_delta = "No text present"
