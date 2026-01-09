@@ -26,22 +26,35 @@ class SimhaCLI:
         if self.agent is None:
             print("Agent is not initialized.")
             return None
+        assistant_msg = False
+        response_content = ""
         async for event in self.agent.run(message):
             if event.type == AgentEventType.TEXT_DELTA:
                 content = event.data.get("content", "")
+                if not assistant_msg:
+                    self.tui.begin_assistant()
+                    assistant_msg = True
                 self.tui.stream_assistant_delta(content)
+
+            elif event.type == AgentEventType.TEXT_COMPLETE:
+                if assistant_msg:
+                    self.tui.end_assistant()
+                    assistant_msg = False
+                response_content = event.data.get("content", "")
             elif event.type == AgentEventType.AGENT_START:
-                message = event.data.get("message", "")
-                self.tui.stream_assistant_delta(f"Agent started: {message}\n")
-            elif event.type == AgentEventType.TEXT_DELTA:
-                content = event.data.get("content", "")
-                self.tui.stream_assistant_delta(content)
+                pass  # Agent started, nothing to display
             elif event.type == AgentEventType.AGENT_END:
-                final_message = event.data.get("message", "")
-                self.tui.stream_assistant_delta(f"\nAgent finished: {final_message}\n")
+                pass  # Agent ended successfully
             elif event.type == AgentEventType.AGENT_ERROR:
                 error_msg = event.data.get("message", "Unknown error")
-                self.tui.stream_assistant_delta(f"\nAgent error: {error_msg}\n")
+                self.tui.display_error(error_message=error_msg)
+                return None
+
+        # Ensure end_assistant is called if the stream was opened
+        if assistant_msg:
+            self.tui.end_assistant()
+
+        return response_content if response_content else "completed"
 
 
 @click.command()

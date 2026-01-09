@@ -26,6 +26,7 @@ class Agent:
     async def _agentic_loop(self, message: str) -> AsyncGenerator[AgentEvent, None]:
         messages = [{"role": "user", "content": "Hello, how are you?"}]
         response_text = ""
+        has_error = False
         async for event in self.client.chat_completion(messages, True):
             if event.type == StreamEventType.TEXT_DELTA:
                 content = event.text_delta.content if event.text_delta else ""
@@ -33,21 +34,18 @@ class Agent:
                 yield AgentEvent.text_delta(content)
             elif event.type == StreamEventType.ERROR:
                 error_msg = event.error if event.error else "Unknown error"
+                has_error = True
                 yield AgentEvent.agent_error(error_msg)
+                return  # Stop processing on error
             elif event.type == StreamEventType.MESSAGE_COMPLETE:
-                content = event.text_delta.content if event.text_delta else "No content"
                 usage = event.usage
-                yield AgentEvent.text_complete(content)
-        if response_text:
-            yield AgentEvent.text_complete(
-                content=response_text,
-                # usage=usage,
-            )
+                # Only yield text_complete once at the end with full response
+                yield AgentEvent.text_complete(content=response_text)
 
     async def __aenter__(self) -> Agent:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         if self.client:
-            await self.client.close()
+            await self.client.close_client()
             self.client = None

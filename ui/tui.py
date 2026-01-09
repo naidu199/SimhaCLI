@@ -1,5 +1,7 @@
 from rich.theme import Theme
 from rich.console import Console
+from rich.rule import Rule
+from rich.text import Text
 
 SIMHA_THEME = Theme(
     {
@@ -67,6 +69,25 @@ class TUI:
         console: Console | None = None,
     ) -> None:
         self.console = console or get_console()
+        self.__assistant_stream_open = False
+
+    def begin_assistant(self) -> None:
+        self.console.print()
+        self.console.print(
+            Rule(Text("Assistant Begin", style="assistant"), style="border")
+        )
+        self.__assistant_stream_open = True
+
+    def end_assistant(self) -> None:
+        if self.__assistant_stream_open:
+            self.console.print()
+            self.console.print(
+                Rule(Text("Assistant End", style="assistant"), style="border")
+            )
+            self.__assistant_stream_open = False
 
     def stream_assistant_delta(self, content: str) -> None:
         self.console.print(content, end="", markup=False)
+
+    def display_error(self, error_message: str) -> None:
+        self.console.print(f"[error]Error: {error_message}[/error]")

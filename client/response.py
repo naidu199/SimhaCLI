@@ -29,7 +29,6 @@ class TokenUsage:  # Tracks token usage statistics
         )
 
 
-@dataclass
 class StreamEventType(str, Enum):  # Types of events that can occur during streaming
     TEXT_DELTA = "text_delta"
     MESSAGE_COMPLETE = "message_complete"

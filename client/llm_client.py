@@ -28,7 +28,7 @@ class LLMClinet:
 
         client = self.get_client()
         kwargs = {
-            "model": "mistralai/devstral-2512:free",
+            "model": "mistralai/devstral-2512:eee",
             "messages": messages,
             # "temperature": 0.7,
             # "top_p": 0.9,
@@ -38,18 +38,19 @@ class LLMClinet:
         # Handle rate limit with retries
         for attempt in range(self._max_rate_limit_retries + 1):
             try:
-
+                # Make the API call first to catch exceptions before streaming
+                response = await client.chat.completions.create(**kwargs)
+                
                 if stream:
-                    async for event in self._stream_response(
-                        client=client, kwargs=kwargs
-                    ):
+                    async for event in self._process_stream_response(response):
                         yield event
                 else:
-                    event = await self._normal_response(client, kwargs)
+                    event = await self._process_normal_response(response)
                     yield event
                 return
             except RateLimitError as e:
                 if attempt < self._max_rate_limit_retries:
+                    print(f"[Retry {attempt + 1}/{self._max_rate_limit_retries}] Rate limit hit, retrying...")
                     await asyncio.sleep(2**attempt)  # Exponential backoff
                     continue
                 else:
@@ -60,6 +61,7 @@ class LLMClinet:
                     return
             except APIConnectionError as e:
                 if attempt < self._max_rate_limit_retries:
+                    print(f"[Retry {attempt + 1}/{self._max_rate_limit_retries}] Connection error, retrying...")
                     await asyncio.sleep(2**attempt)  # Exponential backoff
                     continue
                 else:
@@ -70,6 +72,7 @@ class LLMClinet:
                     return
             except APIError as e:
                 if attempt < self._max_rate_limit_retries:
+                    print(f"[Retry {attempt + 1}/{self._max_rate_limit_retries}] API error, retrying...")
                     await asyncio.sleep(2**attempt)  # Exponential backoff
                     continue
                 else:
@@ -79,11 +82,10 @@ class LLMClinet:
                     )
                     return
 
-    # Private methods to hadle streaming responses with async generator
-    async def _stream_response(
-        self, client: AsyncOpenAI, kwargs: dict[str, Any]
+    # Private method to process streaming responses (response already created)
+    async def _process_stream_response(
+        self, response
     ) -> AsyncGenerator[StreamEvent, None]:
-        response = await client.chat.completions.create(**kwargs)
         usage: TokenUsage | None = None
         final_reason: str | None = None
         async for chunk in response:
@@ -124,13 +126,10 @@ class LLMClinet:
             final_reason=final_reason,
         )
 
-        # Private method to handle normal (non-streaming) responses with async function
-
-    async def _normal_response(
-        self, client: AsyncOpenAI, kwargs: dict[str, Any]
+    # Private method to process normal (non-streaming) responses (response already created)
+    async def _process_normal_response(
+        self, response
     ) -> StreamEvent:
-        response = await client.chat.completions.create(**kwargs)
-        # print(response)
         choice = response.choices[0]
         message = choice.message
         text_delta = "No text present"
