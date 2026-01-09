@@ -1,133 +1,156 @@
 import asyncio
 from typing import Any, AsyncGenerator
 from openai import APIConnectionError, APIError, APIError, AsyncOpenAI, RateLimitError
-from .response import TextDelta, TokenUsage, StreamEvent, EventType
+from .response import TextDelta, TokenUsage, StreamEvent, StreamEventType
+
+
 class LLMClinet:
-	def __init__(self) -> None:
-		self._client : AsyncOpenAI | None = None
-		self._max_rate_limit_retries = 3
+    def __init__(self) -> None:
+        self._client: AsyncOpenAI | None = None
+        self._max_rate_limit_retries = 3
 
-	def get_client(self) -> AsyncOpenAI:
-		if self._client is None:
-			self._client = AsyncOpenAI(
-				api_key="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",
-				base_url="https://openrouter.ai/api/v1"
-			)
-		return self._client
-	async def close_client(self) -> None:
-		if self._client is not None:
-			await self._client.close()
-		self._client = None
+    def get_client(self) -> AsyncOpenAI:
+        if self._client is None:
+            self._client = AsyncOpenAI(
+                api_key="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",
+                base_url="https://openrouter.ai/api/v1",
+            )
+        return self._client
 
-	async def chat_completion(self, messages: list[dict[str,Any]], stream: bool = True) -> AsyncGenerator:
+    async def close_client(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+        self._client = None
 
-		client = self.get_client()
-		kwargs = {
-			"model": "mistralai/devstral-2512:free",
-			"messages": messages,
-			# "temperature": 0.7,
-			# "top_p": 0.9,
-			"stream": stream,
-		}
+    async def chat_completion(
+        self, messages: list[dict[str, Any]], stream: bool = True
+    ) -> AsyncGenerator:
 
-		# Handle rate limit with retries
-		for attempt in range(self._max_rate_limit_retries + 1):
-			try:
+        client = self.get_client()
+        kwargs = {
+            "model": "mistralai/devstral-2512:free",
+            "messages": messages,
+            # "temperature": 0.7,
+            # "top_p": 0.9,
+            "stream": stream,
+        }
 
-				if stream:
-					async for event in self._stream_response(client= client, kwargs= kwargs):
-						yield event
-				else:
-					event= await self._normal_response( client, kwargs )
-					yield event
-				return
-			except RateLimitError as e:
-				if attempt < self._max_rate_limit_retries:
-					await asyncio.sleep(2 ** attempt)  # Exponential backoff
-					continue
-				else:
-					yield StreamEvent(
-						type=EventType.ERROR,
-						error=f'Rate limit exceeded after {self._max_rate_limit_retries} retries: {str(e)}',
-					)
-					return
-			except APIConnectionError as e:
-				if attempt < self._max_rate_limit_retries:
-					await asyncio.sleep(2 ** attempt)  # Exponential backoff
-					continue
-				else:
-					yield StreamEvent(
-						type=EventType.ERROR,
-						error=f'API connection error after {self._max_rate_limit_retries} retries: {str(e)}',
-					)
-					return
-			except APIError as e:
-				if attempt < self._max_rate_limit_retries:
-					await asyncio.sleep(2 ** attempt)  # Exponential backoff
-					continue
-				else:
-					yield StreamEvent(
-						type=EventType.ERROR,
-						error=f'API error after {self._max_rate_limit_retries} retries: {str(e)}',
-					)
-					return
+        # Handle rate limit with retries
+        for attempt in range(self._max_rate_limit_retries + 1):
+            try:
 
+                if stream:
+                    async for event in self._stream_response(
+                        client=client, kwargs=kwargs
+                    ):
+                        yield event
+                else:
+                    event = await self._normal_response(client, kwargs)
+                    yield event
+                return
+            except RateLimitError as e:
+                if attempt < self._max_rate_limit_retries:
+                    await asyncio.sleep(2**attempt)  # Exponential backoff
+                    continue
+                else:
+                    yield StreamEvent(
+                        type=StreamEventType.ERROR,
+                        error=f"Rate limit exceeded after {self._max_rate_limit_retries} retries: {str(e)}",
+                    )
+                    return
+            except APIConnectionError as e:
+                if attempt < self._max_rate_limit_retries:
+                    await asyncio.sleep(2**attempt)  # Exponential backoff
+                    continue
+                else:
+                    yield StreamEvent(
+                        type=StreamEventType.ERROR,
+                        error=f"API connection error after {self._max_rate_limit_retries} retries: {str(e)}",
+                    )
+                    return
+            except APIError as e:
+                if attempt < self._max_rate_limit_retries:
+                    await asyncio.sleep(2**attempt)  # Exponential backoff
+                    continue
+                else:
+                    yield StreamEvent(
+                        type=StreamEventType.ERROR,
+                        error=f"API error after {self._max_rate_limit_retries} retries: {str(e)}",
+                    )
+                    return
 
-	# Private methods to hadle streaming responses with async generator
-	async def _stream_response(self,client: AsyncOpenAI, kwargs: dict[str, Any]) -> AsyncGenerator[StreamEvent, None]:
-		response = await client.chat.completions.create(**kwargs)
-		usage : TokenUsage | None = None
-		final_reason: str | None = None
-		async for chunk in response:
-			if hasattr(chunk, "usage") and chunk.usage:
-				usage = TokenUsage(
-					prompt_tokens=chunk.usage.prompt_tokens,
-					completion_tokens=chunk.usage.completion_tokens,
-					total_tokens=chunk.usage.total_tokens,
-					cached_tokens=chunk.usage.prompt_tokens_details.cached_tokens if chunk.usage.prompt_tokens_details else 0,
-				)
-			if not chunk.choices:
-				continue
-			choice = chunk.choices[0]
-			delta_content = choice.delta.content if choice.delta and hasattr(choice.delta, "content") else ""
+    # Private methods to hadle streaming responses with async generator
+    async def _stream_response(
+        self, client: AsyncOpenAI, kwargs: dict[str, Any]
+    ) -> AsyncGenerator[StreamEvent, None]:
+        response = await client.chat.completions.create(**kwargs)
+        usage: TokenUsage | None = None
+        final_reason: str | None = None
+        async for chunk in response:
+            if hasattr(chunk, "usage") and chunk.usage:
+                usage = TokenUsage(
+                    prompt_tokens=chunk.usage.prompt_tokens,
+                    completion_tokens=chunk.usage.completion_tokens,
+                    total_tokens=chunk.usage.total_tokens,
+                    cached_tokens=(
+                        chunk.usage.prompt_tokens_details.cached_tokens
+                        if chunk.usage.prompt_tokens_details
+                        else 0
+                    ),
+                )
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            delta_content = (
+                choice.delta.content
+                if choice.delta and hasattr(choice.delta, "content")
+                else ""
+            )
 
-			if choice.finish_reason is not None:
-				final_reason = choice.finish_reason
-			if delta_content:
-				yield StreamEvent(
-					type=EventType.TEXT_DELTA,
-					text_delta=TextDelta(content=delta_content),
-					usage=usage,
-					final_reason=final_reason,
-				)
+            if choice.finish_reason is not None:
+                final_reason = choice.finish_reason
+            if delta_content:
+                yield StreamEvent(
+                    type=StreamEventType.TEXT_DELTA,
+                    text_delta=TextDelta(content=delta_content),
+                    usage=usage,
+                    final_reason=final_reason,
+                )
 
-		yield StreamEvent(
-			type=EventType.MESSAGE_COMPLETE,
-			text_delta=TextDelta(content="", is_final=True),
-			usage=usage,
-			final_reason=final_reason,
-		)
+        yield StreamEvent(
+            type=StreamEventType.MESSAGE_COMPLETE,
+            text_delta=TextDelta(content="", is_final=True),
+            usage=usage,
+            final_reason=final_reason,
+        )
 
-    # Private method to handle normal (non-streaming) responses with async function
-	async def _normal_response(self, client: AsyncOpenAI, kwargs: dict[str, Any])-> StreamEvent:
-		response = await client.chat.completions.create(**kwargs)
-		# print(response)
-		choice = response.choices[0]
-		message = choice.message
-		text_delta="No text present"
-		if message.content:
-			text_delta = TextDelta(content=message.content)
-		if response.usage:
-			usage = TokenUsage(
-				prompt_tokens=response.usage.prompt_tokens,
-				completion_tokens=response.usage.completion_tokens,
-				total_tokens=response.usage.total_tokens,
-				cached_tokens=response.usage.prompt_tokens_details.cached_tokens if response.usage.prompt_tokens_details else 0,
-			)
+        # Private method to handle normal (non-streaming) responses with async function
 
-			return StreamEvent(
-				type=EventType.MESSAGE_COMPLETE,
-				text_delta=text_delta,
-				usage=usage,
-    			final_reason=choice.finish_reason,
-			)
+    async def _normal_response(
+        self, client: AsyncOpenAI, kwargs: dict[str, Any]
+    ) -> StreamEvent:
+        response = await client.chat.completions.create(**kwargs)
+        # print(response)
+        choice = response.choices[0]
+        message = choice.message
+        text_delta = "No text present"
+        if message.content:
+            text_delta = TextDelta(content=message.content)
+        if response.usage:
+            usage = TokenUsage(
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens,
+                cached_tokens=(
+                    response.usage.prompt_tokens_details.cached_tokens
+                    if response.usage.prompt_tokens_details
+                    else 0
+                ),
+            )
+
+            return StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                text_delta=text_delta,
+                usage=usage,
+                final_reason=choice.finish_reason,
+            )
