@@ -84,6 +84,12 @@ class ToolResult:
             **kwargs,
         )
 
+    def to_model_output(self) -> str:
+        if self.success:
+            return self.output
+
+        return f"Error: {self.error}\n\nOutput:\n{self.output}"
+
 
 @dataclass
 class ToolConfirmation:
@@ -119,7 +125,7 @@ class Tool(abc.ABC):
         schema = self.schema
         if isinstance(schema, type) and issubclass(schema, BaseModel):
             try:
-                BaseModel(**params)
+                schema(**params)
                 return []
             except ValidationError as e:
                 errors = []

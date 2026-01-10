@@ -3,7 +3,10 @@ from enum import Enum
 from dataclasses import dataclass, field
 from typing import Any
 
+from regex import T
+
 from client.response import TokenUsage
+from tools.base import ToolResult
 
 
 class AgentEventType(str, Enum):
@@ -15,6 +18,12 @@ class AgentEventType(str, Enum):
     # Task-related events
     TEXT_DELTA = "text_delta"
     TEXT_COMPLETE = "text_complete"
+
+    # Tool call events
+    TOOL_CALL_START = "tool_call_start"
+    TOOL_CALL_END = "tool_call_end"
+    TOOL_CALL_ERROR = "tool_call_error"
+    TOOL_CALL_COMPLETE = "tool_call_complete"
 
 
 @dataclass
@@ -62,4 +71,41 @@ class AgentEvent:
         return cls(
             type=AgentEventType.TEXT_COMPLETE,
             data={"content": content},
+        )
+
+    @classmethod
+    def tool_call_start(
+        cls,
+        call_id: str,
+        name: str | None = None,
+        arguments: dict[str, Any] | None = None,
+    ) -> AgentEvent:
+        return cls(
+            type=AgentEventType.TOOL_CALL_START,
+            data={
+                "call_id": call_id,
+                "name": name,
+                "arguments": arguments,
+            },
+        )
+
+    @classmethod
+    def tool_call_complete(
+        cls,
+        call_id: str,
+        name: str | None = None,
+        result: ToolResult | None = None,
+    ) -> AgentEvent:
+        return cls(
+            type=AgentEventType.TOOL_CALL_COMPLETE,
+            data={
+                "call_id": call_id,
+                "name": name,
+                "result": result,
+                "success": result.success if result else False,
+                "output": result.output if result else None,
+                "error": result.error if result else None,
+                "metadata": result.metadata if result else None,
+                "truncated": result.truncated if result else False,
+            },
         )
