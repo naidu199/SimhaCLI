@@ -1,4 +1,5 @@
 from __future__ import annotations
+from json import tool
 from tkinter import N
 from typing import AsyncGenerator, final
 
@@ -7,12 +8,14 @@ from agent.events import AgentEvent, AgentEventType
 from client.llm_client import LLMClinet
 from client.response import StreamEventType
 from context.manager import ContextManager
+from tools.registry import create_default_registry
 
 
 class Agent:
     def __init__(self):
         self.client = LLMClinet()
         self.context_manager = ContextManager()
+        self.tool_registry = create_default_registry()  # Placeholder for tool registry
 
     async def run(self, message: str) -> AsyncGenerator[AgentEvent, None]:
         yield AgentEvent.agent_start(message=message)
@@ -33,10 +36,15 @@ class Agent:
     async def _agentic_loop(self) -> AsyncGenerator[AgentEvent, None]:
 
         response_text = ""
+
+        tool_schema = self.tool_registry.get_schemas()
+
         has_error = False
         async for event in self.client.chat_completion(
-            self.context_manager.get_messages(), True
+            self.context_manager.get_messages(),
+            tools=tool_schema if tool_schema else None,
         ):
+            print(event)
             if event.type == StreamEventType.TEXT_DELTA:
                 content = event.text_delta.content if event.text_delta else ""
                 response_text += content
