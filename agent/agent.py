@@ -1,33 +1,42 @@
 from __future__ import annotations
-from typing import AsyncGenerator
+from tkinter import N
+from typing import AsyncGenerator, final
+
+from click import Context
 from agent.events import AgentEvent, AgentEventType
 from client.llm_client import LLMClinet
 from client.response import StreamEventType
+from context.manager import ContextManager
 
 
 class Agent:
     def __init__(self):
         self.client = LLMClinet()
+        self.context_manager = ContextManager()
 
     async def run(self, message: str) -> AsyncGenerator[AgentEvent, None]:
         yield AgentEvent.agent_start(message=message)
+        self.context_manager.add_user_message(message)
         # add user message to the context
+        final_message: str | None = None
         try:
-            async for event in self._agentic_loop(message):
+            async for event in self._agentic_loop():
                 yield event
                 if event.type == AgentEventType.TEXT_COMPLETE:
                     final_message = event.data.get("content", "")
                     # yield AgentEvent.text_complete(content=final_message)
 
-            yield AgentEvent.agent_end(response=message)
+            yield AgentEvent.agent_end(response=final_message)
         except Exception as e:
             yield AgentEvent.agent_error(f"Agent encountered an error: {str(e)}")
 
-    async def _agentic_loop(self, message: str) -> AsyncGenerator[AgentEvent, None]:
-        messages = [{"role": "user", "content": "Hello, how are you?"}]
+    async def _agentic_loop(self) -> AsyncGenerator[AgentEvent, None]:
+
         response_text = ""
         has_error = False
-        async for event in self.client.chat_completion(messages, True):
+        async for event in self.client.chat_completion(
+            self.context_manager.get_messages(), True
+        ):
             if event.type == StreamEventType.TEXT_DELTA:
                 content = event.text_delta.content if event.text_delta else ""
                 response_text += content
@@ -41,6 +50,7 @@ class Agent:
                 usage = event.usage
                 # Only yield text_complete once at the end with full response
                 yield AgentEvent.text_complete(content=response_text)
+        self.context_manager.add_assistant_message(response_text or "")
 
     async def __aenter__(self) -> Agent:
         return self
