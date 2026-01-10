@@ -29,7 +29,7 @@ class SimhaCLI:
         assistant_msg = False
         response_content = ""
         async for event in self.agent.run(message):
-            print(event)
+            # print(event)
             if event.type == AgentEventType.TEXT_DELTA:
                 content = event.data.get("content", "")
                 if not assistant_msg:

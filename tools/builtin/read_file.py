@@ -95,12 +95,13 @@ class ReadFileTool(Tool):
                 formatted_lines.append(f"{i:6}|{line}")
 
             output = "\n".join(formatted_lines)
-            token_count = count_tokens(output)
+            token_count = count_tokens(output, "gpt-4")
 
             truncated = False
             if token_count > self.MAX_OUTPUT_TOKENS:
                 output = truncate_text(
                     output,
+                    "gpt-4",
                     self.MAX_OUTPUT_TOKENS,
                     suffix=f"\n... [truncated {total_lines} total lines]",
                 )

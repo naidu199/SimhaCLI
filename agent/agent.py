@@ -7,7 +7,12 @@ from typing import AsyncGenerator, final
 from click import Context
 from agent.events import AgentEvent, AgentEventType
 from client.llm_client import LLMClinet
-from client.response import StreamEventType, ToolCall, ToolResultMessage
+from client.response import (
+    StreamEventType,
+    ToolCall,
+    ToolResultMessage,
+    parse_tool_call_arguments,
+)
 from context.manager import ContextManager
 from tools.registry import create_default_registry
 
@@ -75,7 +80,7 @@ class Agent:
 
             result = await self.tool_registry.invoke(
                 tool_call.name or "",
-                tool_call.arguments or {},
+                parse_tool_call_arguments(tool_call.arguments or ""),
                 Path.cwd(),
             )
 
