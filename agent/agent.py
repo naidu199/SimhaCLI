@@ -43,6 +43,8 @@ class Agent:
 
     async def _agentic_loop(self) -> AsyncGenerator[AgentEvent, None]:
 
+        max_turns = self.config.max_turns
+
         response_text = ""
 
         tool_schema = self.tool_registry.get_schemas()
@@ -105,7 +107,7 @@ class Agent:
             result = await self.tool_registry.invoke(
                 tool_call.name or "",
                 parsed_args,
-                Path.cwd(),
+                self.config.cwd,
             )
 
             yield AgentEvent.tool_call_complete(

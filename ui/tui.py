@@ -12,6 +12,7 @@ from rich.console import Group
 from rich.syntax import Syntax
 from rich.markdown import Markdown
 
+from config.config import Config
 from tools.base import ToolConfirmation
 from utils.paths import display_path_rel_to_cwd
 import re
@@ -82,12 +83,14 @@ def get_console() -> Console:
 class TUI:
     def __init__(
         self,
+        config: Config,
         console: Console | None = None,
     ) -> None:
         self.console = console or get_console()
         self.__assistant_stream_open = False
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
-        self.cwd: Path = Path.cwd()
+        self.config = config
+        self.cwd: Path = config.cwd
 
     def print_welcome(self, title: str, lines: list[str]) -> None:
         body = "\n".join(lines)
@@ -265,7 +268,7 @@ class TUI:
         border_style = f"tool.{tool_kind}" if tool_kind else "tool"
 
         title = Text.assemble(
-            ("⏺ ", "muted"),
+            ("▶ ", "muted"),
             (name, "tool"),
             ("  ", "muted"),
             (f"#{call_id[:8]}", "muted"),

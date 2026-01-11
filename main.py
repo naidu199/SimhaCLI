@@ -14,13 +14,13 @@ console = get_console()  # Initialize console for TUI output
 class SimhaCLI:
     def __init__(self, config: Config) -> None:
         self.agent: Agent | None = None
-        self.tui: TUI = TUI(console=console)
+        self.tui: TUI = TUI(console=console, config=config)
         self.config = config
 
     async def run_single(self, message: str) -> str | None:
         async with Agent(config=self.config) as agent:
             self.agent = agent
-            return await self.__process_message(message)
+            return await self._process_message(message)
 
     async def run_interactive(
         self,
@@ -35,7 +35,7 @@ class SimhaCLI:
                 "",
                 "Current Usage::",
                 f"Model: {self.config.model.name}",
-                f"CWD: {Path.cwd()}",
+                f"CWD: {self.config.cwd}",
                 "Commands: /help for help, /exit to exit, /config, /approval, /model",
                 "Type your commands below to get started!",
                 "Type /exit or /quit to exit.",
@@ -50,13 +50,18 @@ class SimhaCLI:
                         if not user_input:
                             continue
 
-                        if user_input.lower() in {"/exit", "/quit"}:
-                            console.print("[bold gold1]Exiting...[/bold gold1]")
-                            break
-                        await self.__process_message(user_input)
+                        if user_input.startswith("/"):
+
+                            command = user_input[1:].strip().lower()
+                            if command in ("exit", "quit"):
+                                break
+                            else:
+                                console.print("\n[red]Use /exit to quit[/red]")
+                            continue
+
+                        await self._process_message(user_input)
                     except KeyboardInterrupt:
-                        console.print("\n[error]use /exit or /quit to quit[/error]")
-                        continue
+                        console.print("\n[dim]Use /exit to quit[/dim]")
                     except EOFError:
                         break
         except KeyboardInterrupt:
@@ -77,7 +82,7 @@ class SimhaCLI:
 
         return tool_kind
 
-    async def __process_message(self, message: str) -> str | None:
+    async def _process_message(self, message: str) -> str | None:
         if self.agent is None:
             print("Agent is not initialized.")
             return None

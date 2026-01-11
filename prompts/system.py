@@ -1,12 +1,13 @@
 from datetime import datetime
 import platform
 
-# from config.config import Config
+from config.config import Config
+
 # from tools.base import Tool
 
 
 def get_system_prompt(
-    # config: Config,
+    config: Config,
     # user_memory: str | None = None,
     # tools: list[Tool] | None = None,
 ) -> str:
@@ -26,11 +27,11 @@ def get_system_prompt(
     # Security guidelines
     parts.append(_get_security_section())
 
-    # if config.developer_instructions:
-    #     parts.append(_get_developer_instructions_section(config.developer_instructions))
+    if config.developer_instructions:
+        parts.append(_get_developer_instructions_section(config.developer_instructions))
 
-    # if config.user_instructions:
-    #     parts.append(_get_user_instructions_section(config.user_instructions))
+    if config.user_instructions:
+        parts.append(_get_user_instructions_section(config.user_instructions))
 
     # if user_memory:
     #     parts.append(_get_memory_section(user_memory))
@@ -44,7 +45,7 @@ def _get_identity_section() -> str:
     """Generate the identity section."""
     return """# Identity
 
-You are an AI coding agent, a terminal-based coding assistant. You are expected to be precise, safe and helpful.
+You are SimhaCLI, an AI coding agent, a terminal-based coding assistant. You are expected to be precise, safe and helpful.
 
 Your capabilities:
 - Receive user prompts and other context provided by the harness, such as files in the workspace
