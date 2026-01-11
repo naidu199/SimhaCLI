@@ -67,7 +67,27 @@ class Agent:
                 usage = event.usage
                 # Only yield text_complete once at the end with full response
                 yield AgentEvent.text_complete(content=response_text)
-        self.context_manager.add_assistant_message(response_text or "")
+
+        # Convert tool_calls to the format expected by the API
+        tool_calls_dict = (
+            [
+                {
+                    "id": tc.call_id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.name,
+                        "arguments": tc.arguments,
+                    },
+                }
+                for tc in tool_calls
+            ]
+            if tool_calls
+            else None
+        )
+
+        self.context_manager.add_assistant_message(
+            response_text or "", tool_calls=tool_calls_dict
+        )
 
         tool_call_results: list[ToolResultMessage] = []
 

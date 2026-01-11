@@ -34,7 +34,7 @@ SIMHA_THEME = Theme(
         "brand": "gold1 bold",
         "simha": "bright_yellow bold",
         # Roles
-        "user": "bright_blue bold",
+        "user": "gold1 bold",
         "assistant": "white bold",
         "system": "gold3",
         # Tools
@@ -89,6 +89,36 @@ class TUI:
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self.cwd: Path = Path.cwd()
 
+    def print_welcome(self, title: str, lines: list[str]) -> None:
+        body = "\n".join(lines)
+        BANNER = """
+        ╔═══════════════════════════════════════════════════════════════╗
+        ║                                                               ║
+        ║   ██████╗ ██╗███╗   ███╗██╗  ██╗ █████╗  ██████╗██╗     ██╗   ║
+        ║  ██╔════╝ ██║████╗ ████║██║  ██║██╔══██╗██╔════╝██║     ██║   ║
+        ║  ╚█████╗  ██║██╔████╔██║███████║███████║██║     ██║     ██║   ║
+        ║   ╚═══██╗ ██║██║╚██╔╝██║██╔══██║██╔══██║██║     ██║     ██║   ║
+        ║  ██████╔╝ ██║██║ ╚═╝ ██║██║  ██║██║  ██║╚██████╗███████╗██║   ║
+        ║  ╚═════╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝   ║
+        ║                                                               ║
+        ║               SIMHACLI AI Coding Agent!.                      ║
+        ║                                                               ║
+        ╚═══════════════════════════════════════════════════════════════╝
+    """
+
+        self.console.print(Text(BANNER, style="bold yellow"))
+
+        self.console.print(
+            Panel(
+                Text(body, style="cyan"),
+                title=Text(f"> {title}", style="highlight"),
+                title_align="left",
+                border_style="bright_blue",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+
     def begin_assistant(self) -> None:
         self.console.print()
         self.console.print(
@@ -113,37 +143,37 @@ class TUI:
     def agent_start(self, message: str) -> None:
         self.console.print()
         self.console.print(
-            Rule(
-                Text.assemble(
-                    ("🦁 ", ""),
-                    ("SimhaCLI Starting", "Gold1 bold"),
-                    ("  ", ""),
-                    (message, "dim"),
-                ),
-                style="Gold1 bold",
+            Text.assemble(
+                ("SimhaCLI", "gold1 bold"),
+                ("🦁  ", "gold1"),
+                ("  starting  ", "dim"),
+                (message, "cyan"),
             )
         )
 
     def agent_end(self, usage: dict[str, Any] | None = None) -> None:
         self.console.print()
+
         if usage:
-            usage_text = Text.assemble(
-                ("🦁 ", "success"),
-                ("SimhaCLI Complete", "bold success"),
-                ("  ", ""),
+            text = Text.assemble(
+                ("SimhaCLI", "bold green"),
+                ("🦁  ", "green"),
+                ("  complete  ", "dim"),
                 (
-                    f"[{usage.get('total_tokens', 0)} tokens: "
-                    f"{usage.get('prompt_tokens', 0)} prompt + "
-                    f"{usage.get('completion_tokens', 0)} completion]",
+                    f"{usage.get('total_tokens', 0)} tokens "
+                    f"({usage.get('prompt_tokens', 0)} prompt + "
+                    f"{usage.get('completion_tokens', 0)} completion)",
                     "muted",
                 ),
             )
         else:
-            usage_text = Text.assemble(
-                ("🦁 ", "success"),
-                ("SimhaCLI Complete", "bold success"),
+            text = Text.assemble(
+                ("SimhaCLI", "bold green"),
+                ("🦁  ", "green"),
+                ("  complete", "dim"),
             )
-        self.console.print(Rule(usage_text, style="success"))
+
+        self.console.print(text)
 
     def _ordered_args(self, tool_name: str, args: dict[str, Any]) -> list[tuple]:
         _PREFERRED_ORDER = {

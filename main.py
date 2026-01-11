@@ -1,8 +1,12 @@
+from calendar import c
+from math import e
+from pathlib import Path
 from re import A
 import sys
 from tkinter import N
 import click
 from httpx import get
+from regex import P
 from agent.agent import Agent
 from agent.events import AgentEventType
 from client.llm_client import LLMClinet
@@ -23,6 +27,51 @@ class SimhaCLI:
             self.agent = agent
             return await self.__process_message(message)
 
+    async def run_interactive(
+        self,
+    ) -> str | None:
+        self.tui.print_welcome(
+            title="SimhaCLI 🦁 — AI Coding Agent",
+            lines=[
+                "Built by Narasimha Naidu",
+                "",
+                "SimhaCLI is a powerful AI coding agent that runs inside your terminal.",
+                "It connects to multiple large language models and uses tools to think, read, and act.",
+                "",
+                "Current Usage::",
+                "Model: mistralai/devstral-2512:free",
+                f"CWD: {Path.cwd()}",
+                "Commands: /help for help, /exit to exit, /config, /approval, /model",
+                "Type your commands below to get started!",
+                "Type /exit or /quit to exit.",
+            ],
+        )
+        try:
+            async with Agent() as agent:
+                self.agent = agent
+                while True:
+                    try:
+                        user_input = console.input("\n[user]>[/user] ").strip()
+                        if not user_input:
+                            continue
+
+                        if user_input.lower() in {"/exit", "/quit"}:
+                            console.print("[bold gold1]Exiting...[/bold gold1]")
+                            break
+                        await self.__process_message(user_input)
+                    except KeyboardInterrupt:
+                        console.print("\n[error]use /exit or /quit to quit[/error]")
+                        continue
+                    except EOFError:
+                        break
+        except KeyboardInterrupt:
+            console.print(
+                "\n[error]Interrupted! Use /exit or /quit to quit properly.[/error]"
+            )
+            return None
+
+        console.print("\n[brand]Thank You!... SIMHACLI 🦁[/brand]")
+
     def _get_tool_kind(self, tool_name: str) -> str | None:
         tool_kind = None
         tool = self.agent.tool_registry.get(tool_name)
@@ -37,21 +86,16 @@ class SimhaCLI:
         if self.agent is None:
             print("Agent is not initialized.")
             return None
-        assistant_msg = False
+
         response_content = ""
         async for event in self.agent.run(message):
             # print(event)
             if event.type == AgentEventType.TEXT_DELTA:
                 content = event.data.get("content", "")
-                if not assistant_msg:
-                    self.tui.begin_assistant()
-                    assistant_msg = True
+
                 self.tui.stream_assistant_delta(content)
 
             elif event.type == AgentEventType.TEXT_COMPLETE:
-                if assistant_msg:
-                    self.tui.end_assistant()
-                    assistant_msg = False
                 response_content = event.data.get("content", "")
             elif event.type == AgentEventType.AGENT_START:
                 message = event.data.get("message", "")
@@ -88,10 +132,6 @@ class SimhaCLI:
                     event.data.get("exit_code"),
                 )
 
-        # Ensure end_assistant is called if the stream was opened
-        if assistant_msg:
-            self.tui.end_assistant()
-
         return response_content if response_content else "completed"
 
 
@@ -101,10 +141,15 @@ def main(
     prompt: str | None = None,
 ):
     cli = SimhaCLI()
-    if prompt:
-        result = asyncio.run(cli.run_single(prompt))
-        if result is None:
-            sys.exit(1)
+    try:
+        if prompt:
+            result = asyncio.run(cli.run_single(prompt))
+            if result is None:
+                sys.exit(1)
+        else:
+            asyncio.run(cli.run_interactive())
+    except KeyboardInterrupt:
+        pass  # Silently handle, our inner handlers already displayed messages
 
 
 main()
