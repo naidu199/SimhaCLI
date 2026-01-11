@@ -1,29 +1,24 @@
-from calendar import c
-from math import e
 from pathlib import Path
-from re import A
 import sys
-from tkinter import N
 import click
-from httpx import get
-from regex import P
 from agent.agent import Agent
 from agent.events import AgentEventType
-from client.llm_client import LLMClinet
 import asyncio
-
+from config.config import Config
+from config.loader import load_config
 from ui.tui import TUI, get_console
 
 console = get_console()  # Initialize console for TUI output
 
 
 class SimhaCLI:
-    def __init__(self):
+    def __init__(self, config: Config) -> None:
         self.agent: Agent | None = None
         self.tui: TUI = TUI(console=console)
+        self.config = config
 
     async def run_single(self, message: str) -> str | None:
-        async with Agent() as agent:
+        async with Agent(config=self.config) as agent:
             self.agent = agent
             return await self.__process_message(message)
 
@@ -47,7 +42,7 @@ class SimhaCLI:
             ],
         )
         try:
-            async with Agent() as agent:
+            async with Agent(config=self.config) as agent:
                 self.agent = agent
                 while True:
                     try:
@@ -137,10 +132,31 @@ class SimhaCLI:
 
 @click.command()
 @click.argument("prompt", required=False)
+@click.option(
+    "--cwd",
+    "-c",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    help="Set the current working directory for the agent.",
+    default=None,
+)
 def main(
     prompt: str | None = None,
+    cwd: Path | None = None,
 ):
-    cli = SimhaCLI()
+
+    try:
+        config = load_config(cwd=cwd)
+    except Exception as e:
+        console.print(f"[error]Failed to load config: {e}[/error]")
+
+    errors = config.validate()
+    if errors:
+        console.print("[error]Configuration errors found:[/error]")
+        for err in errors:
+            console.print(f"[error]- {err}[/error]")
+        sys.exit(1)
+
+    cli = SimhaCLI(config=config)
     try:
         if prompt:
             result = asyncio.run(cli.run_single(prompt))

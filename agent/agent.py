@@ -13,15 +13,17 @@ from client.response import (
     ToolResultMessage,
     parse_tool_call_arguments,
 )
+from config.config import Config
 from context.manager import ContextManager
 from tools.registry import create_default_registry
 
 
 class Agent:
-    def __init__(self):
-        self.client = LLMClinet()
+    def __init__(self, config: Config) -> None:
+        self.config = config
+        self.client = LLMClinet(config=self.config)
         self.context_manager = ContextManager()
-        self.tool_registry = create_default_registry()  # Placeholder for tool registry
+        self.tool_registry = create_default_registry()
 
     async def run(self, message: str) -> AsyncGenerator[AgentEvent, None]:
         yield AgentEvent.agent_start(message=message)

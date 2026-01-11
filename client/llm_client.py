@@ -2,6 +2,8 @@ import asyncio
 from json import tool
 from typing import Any, AsyncGenerator
 from openai import APIConnectionError, APIError, APIError, AsyncOpenAI, RateLimitError
+
+from config.config import Config
 from .response import (
     TextDelta,
     TokenUsage,
@@ -13,15 +15,16 @@ from .response import (
 
 
 class LLMClinet:
-    def __init__(self) -> None:
+    def __init__(self, config: Config) -> None:
         self._client: AsyncOpenAI | None = None
         self._max_rate_limit_retries = 3
+        self._config = config
 
     def get_client(self) -> AsyncOpenAI:
         if self._client is None:
             self._client = AsyncOpenAI(
-                api_key="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",
-                base_url="https://openrouter.ai/api/v1",
+                api_key=self._config.api_key,
+                base_url=self._config.api_base_url,
             )
         return self._client
 
