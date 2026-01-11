@@ -72,15 +72,17 @@ class Agent:
         tool_call_results: list[ToolResultMessage] = []
 
         for tool_call in tool_calls:
+            parsed_args = parse_tool_call_arguments(tool_call.arguments or "")
+
             yield AgentEvent.tool_call_start(
                 call_id=tool_call.call_id,
                 name=tool_call.name,
-                arguments=tool_call.arguments,
+                arguments=parsed_args,
             )
 
             result = await self.tool_registry.invoke(
                 tool_call.name or "",
-                parse_tool_call_arguments(tool_call.arguments or ""),
+                parsed_args,
                 Path.cwd(),
             )
 

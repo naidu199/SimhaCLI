@@ -1,5 +1,6 @@
 from re import A
 import sys
+from tkinter import N
 import click
 from httpx import get
 from agent.agent import Agent
@@ -22,6 +23,16 @@ class SimhaCLI:
             self.agent = agent
             return await self.__process_message(message)
 
+    def _get_tool_kind(self, tool_name: str) -> str | None:
+        tool_kind = None
+        tool = self.agent.tool_registry.get(tool_name)
+        if not tool:
+            tool_kind = None
+
+        tool_kind = tool.kind.value if tool else None
+
+        return tool_kind
+
     async def __process_message(self, message: str) -> str | None:
         if self.agent is None:
             print("Agent is not initialized.")
@@ -43,13 +54,39 @@ class SimhaCLI:
                     assistant_msg = False
                 response_content = event.data.get("content", "")
             elif event.type == AgentEventType.AGENT_START:
-                pass  # Agent started, nothing to display
+                message = event.data.get("message", "")
+                self.tui.agent_start(message)
             elif event.type == AgentEventType.AGENT_END:
-                pass  # Agent ended successfully
+                usage = event.data.get("usage")
+                self.tui.agent_end(usage)
             elif event.type == AgentEventType.AGENT_ERROR:
                 error_msg = event.data.get("message", "Unknown error")
                 self.tui.display_error(error_message=error_msg)
                 return None
+            elif event.type == AgentEventType.TOOL_CALL_START:
+                tool_name = event.data.get("name", "unknown")
+                tool_kind = self._get_tool_kind(tool_name)
+                self.tui.tool_call_start(
+                    event.data.get("call_id", ""),
+                    tool_name,
+                    tool_kind,
+                    event.data.get("arguments", {}),
+                )
+            elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+                tool_name = event.data.get("name", "unknown")
+                tool_kind = self._get_tool_kind(tool_name)
+                self.tui.tool_call_complete(
+                    event.data.get("call_id", ""),
+                    tool_name,
+                    tool_kind,
+                    event.data.get("success", False),
+                    event.data.get("output", ""),
+                    event.data.get("error"),
+                    event.data.get("metadata"),
+                    event.data.get("diff"),
+                    event.data.get("truncated", False),
+                    event.data.get("exit_code"),
+                )
 
         # Ensure end_assistant is called if the stream was opened
         if assistant_msg:
