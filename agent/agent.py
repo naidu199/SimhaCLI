@@ -22,7 +22,7 @@ class Agent:
     def __init__(self, config: Config) -> None:
         self.config = config
         self.client = LLMClinet(config=self.config)
-        self.context_manager = ContextManager()
+        self.context_manager = ContextManager(config=self.config)
         self.tool_registry = create_default_registry()
 
     async def run(self, message: str) -> AsyncGenerator[AgentEvent, None]:

@@ -213,8 +213,8 @@ class TUI:
                     line_count = len(value.splitlines()) or 0
                     byte_count = len(value.encode("utf-8", errors="replace"))
                     value = f"<{line_count} lines • {byte_count} bytes>"
-
-            if isinstance(value, bool):
+            else:
+                # Convert non-string values to string
                 value = str(value)
 
             table.add_row(key, value)

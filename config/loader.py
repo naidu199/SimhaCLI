@@ -20,7 +20,14 @@ AGENT_MD_FILE = "AGENT.MD"
 
 
 def get_config_dir() -> Path:
-    return Path(user_config_dir("simhacli"))
+    # On Windows, user_config_dir returns something like:
+    # C:\Users\<User>\AppData\Local\<appname>\<appname>
+    # We want just C:\Users\<User>\AppData\Local\simhacli
+    config_path = Path(user_config_dir("simhacli"))
+    # Check if it has double simhacli and fix it
+    if config_path.name == "simhacli" and config_path.parent.name == "simhacli":
+        config_path = config_path.parent
+    return config_path
 
 
 def get_config_file_path() -> Path:
@@ -81,15 +88,16 @@ def _merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, An
 def load_config(cwd: Path | None = None) -> Config:
     cwd = cwd or Path.cwd()
 
-    # ~/.config/simhacli/config.toml ( it is platform dependent, from platformdirs when users setup simhacli first time)
+    # C:\Users\Naidu\AppData\Local\simhacli\config.toml ( it is platform dependent, from platformdirs when users setup simhacli first time)
 
-    # Users/Naidu199/simhacli/.simhacli/config.toml (project config file in the current working directory if exists)
+    # \SimhaCLI\.simhacli\config.toml (project config file in the current working directory if exists)
 
     system_path = get_config_file_path()
     config_dict: dict[str, Any] = {}
     if system_path.is_file():
         try:
             config_dict = _parse_toml(system_path)
+            logger.info(f"Loaded system config from {system_path}")
         except ConfigError as e:
             logger.warning(f"Skipping invalid config file: {system_path}: {e}")
     project_path = _get_project_config_file(cwd)

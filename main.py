@@ -34,7 +34,7 @@ class SimhaCLI:
                 "It connects to multiple large language models and uses tools to think, read, and act.",
                 "",
                 "Current Usage::",
-                "Model: mistralai/devstral-2512:free",
+                f"Model: {self.config.model.name}",
                 f"CWD: {Path.cwd()}",
                 "Commands: /help for help, /exit to exit, /config, /approval, /model",
                 "Type your commands below to get started!",
@@ -148,6 +148,7 @@ def main(
         config = load_config(cwd=cwd)
     except Exception as e:
         console.print(f"[error]Failed to load config: {e}[/error]")
+        sys.exit(1)
 
     errors = config.validate()
     if errors:

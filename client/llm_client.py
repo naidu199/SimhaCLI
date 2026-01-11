@@ -62,9 +62,9 @@ class LLMClinet:
 
         client = self.get_client()
         kwargs = {
-            "model": "mistralai/devstral-2512:free",
+            "model": self._config.model.name,
             "messages": messages,
-            # "temperature": 0.7,
+            "temperature": self._config.model.temperature,
             # "top_p": 0.9,
             "stream": stream,
         }
