@@ -91,7 +91,7 @@ class TUI:
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self.config = config
         self.cwd: Path = config.cwd
-        self._max_block_tokens = 320
+        self._max_block_tokens = 3200
 
     def print_welcome(self, title: str, lines: list[str]) -> None:
         body = "\n".join(lines)
@@ -439,73 +439,73 @@ class TUI:
                     word_wrap=True,
                 )
             )
-        # elif name == "list_dir" and success:
-        #     entries = metadata.get("entries")
-        #     path = metadata.get("path")
-        #     summary = []
-        #     if isinstance(path, str):
-        #         summary.append(path)
+        elif name == "list_dir" and success:
+            entries = metadata.get("entries")
+            path = metadata.get("path")
+            summary = []
+            if isinstance(path, str):
+                summary.append(path)
 
-        #     if isinstance(entries, int):
-        #         summary.append(f"{entries} entries")
+            if isinstance(entries, int):
+                summary.append(f"{entries} entries")
 
-        #     if summary:
-        #         blocks.append(Text(" • ".join(summary), style="muted"))
+            if summary:
+                blocks.append(Text(" • ".join(summary), style="muted"))
 
-        #     output_display = truncate_text(
-        #         output,
-        #         self.config.model_name,
-        #         self._max_block_tokens,
-        #     )
-        #     blocks.append(
-        #         Syntax(
-        #             output_display,
-        #             "text",
-        #             theme="monokai",
-        #             word_wrap=True,
-        #         )
-        #     )
-        # elif name == "grep" and success:
-        #     matches = metadata.get("matches")
-        #     files_searched = metadata.get("files_searched")
-        #     summary = []
-        #     if isinstance(matches, int):
-        #         summary.append(f"{matches} matches")
-        #     if isinstance(files_searched, int):
-        #         summary.append(f"searched {files_searched} files")
+            output_display = truncate_text(
+                output,
+                self.config.model_name,
+                self._max_block_tokens,
+            )
+            blocks.append(
+                Syntax(
+                    output_display,
+                    "text",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )
+        elif name == "grep" and success:
+            matches = metadata.get("matches")
+            files_searched = metadata.get("files_searched")
+            summary = []
+            if isinstance(matches, int):
+                summary.append(f"{matches} matches")
+            if isinstance(files_searched, int):
+                summary.append(f"searched {files_searched} files")
 
-        #     if summary:
-        #         blocks.append(Text(" • ".join(summary), style="muted"))
+            if summary:
+                blocks.append(Text(" • ".join(summary), style="muted"))
 
-        #     output_display = truncate_text(
-        #         output, self.config.model_name, self._max_block_tokens
-        #     )
-        #     blocks.append(
-        #         Syntax(
-        #             output_display,
-        #             "text",
-        #             theme="monokai",
-        #             word_wrap=True,
-        #         )
-        #     )
-        # elif name == "glob" and success:
-        #     matches = metadata.get("matches")
-        #     if isinstance(matches, int):
-        #         blocks.append(Text(f"{matches} matches", style="muted"))
+            output_display = truncate_text(
+                output, self.config.model_name, self._max_block_tokens
+            )
+            blocks.append(
+                Syntax(
+                    output_display,
+                    "text",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )
+        elif name == "glob" and success:
+            matches = metadata.get("matches")
+            if isinstance(matches, int):
+                blocks.append(Text(f"{matches} matches", style="muted"))
 
-        #     output_display = truncate_text(
-        #         output,
-        #         self.config.model_name,
-        #         self._max_block_tokens,
-        #     )
-        #     blocks.append(
-        #         Syntax(
-        #             output_display,
-        #             "text",
-        #             theme="monokai",
-        #             word_wrap=True,
-        #         )
-        #     )
+            output_display = truncate_text(
+                output,
+                self.config.model_name,
+                self._max_block_tokens,
+            )
+            blocks.append(
+                Syntax(
+                    output_display,
+                    "text",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )
         # elif name == "web_search" and success:
         #     results = metadata.get("results")
         #     query = args.get("query")
@@ -600,24 +600,24 @@ class TUI:
         #             word_wrap=True,
         #         )
         #     )
-        # else:
-        #     if error and not success:
-        #         blocks.append(Text(error, style="error"))
+        else:
+            if error and not success:
+                blocks.append(Text(error, style="error"))
 
-        #     output_display = truncate_text(
-        #         output, self.config.model_name, self._max_block_tokens
-        #     )
-        #     if output_display.strip():
-        #         blocks.append(
-        #             Syntax(
-        #                 output_display,
-        #                 "text",
-        #                 theme="monokai",
-        #                 word_wrap=True,
-        #             )
-        #         )
-        #     else:
-        #         blocks.append(Text("(no output)", style="muted"))
+            output_display = truncate_text(
+                output, self.config.model_name, self._max_block_tokens
+            )
+            if output_display.strip():
+                blocks.append(
+                    Syntax(
+                        output_display,
+                        "text",
+                        theme="monokai",
+                        word_wrap=True,
+                    )
+                )
+            else:
+                blocks.append(Text("(no output)", style="muted"))
 
         if truncated:
             blocks.append(Text("note: tool output was truncated", style="warning"))

@@ -28,7 +28,7 @@ class SimhaCLI:
         self.tui.print_welcome(
             title="SimhaCLI 🦁 — AI Coding Agent",
             lines=[
-                "Built by Narasimha Naidu",
+                "Built by Narasimha Naidu Korrapti",
                 "",
                 "SimhaCLI is a powerful AI coding agent that runs inside your terminal.",
                 "It connects to multiple large language models and uses tools to think, read, and act.",
