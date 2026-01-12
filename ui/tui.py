@@ -188,7 +188,7 @@ class TUI:
             "list_dir": ["path", "include_hidden"],
             "grep": ["path", "case_insensitive", "pattern"],
             "glob": ["path", "pattern"],
-            "todos": ["id", "action", "content"],
+            "todos": ["action", "id", "content", "priority"],
             "memory": ["action", "key", "value"],
         }
 
@@ -560,19 +560,113 @@ class TUI:
                 )
             )
         elif name == "todos" and success:
-            output_display = truncate_text(
-                output,
-                self.config.model_name,
-                self._max_block_tokens,
-            )
-            blocks.append(
-                Syntax(
-                    output_display,
-                    "text",
-                    theme="monokai",
-                    word_wrap=True,
+            action = args.get("action", "")
+
+            # Special rendering for list action
+            if action == "list" and metadata:
+                total = metadata.get("total", 0)
+                in_progress_count = metadata.get("in_progress", 0)
+                not_started_count = metadata.get("not_started", 0)
+                completed_count = metadata.get("completed", 0)
+                progress = metadata.get("progress_percent", 0)
+
+                # Create overall status header
+                bar_length = 30
+                filled = int((progress / 100) * bar_length)
+                progress_bar = "█" * filled + "░" * (bar_length - filled)
+
+                header = Text.assemble(
+                    ("📊 Overall Progress: ", "bold cyan"),
+                    (f"{completed_count}/{total} ", "bold green"),
+                    (f"({progress}%) ", "bold yellow"),
+                    (progress_bar, "green"),
                 )
-            )
+                blocks.append(header)
+                blocks.append(Text(""))  # Empty line
+
+                # Create summary stats
+                stats = Text.assemble(
+                    ("▶️  In Progress: ", "yellow"),
+                    (f"{in_progress_count}  ", "bold yellow"),
+                    ("⏸️  Not Started: ", "cyan"),
+                    (f"{not_started_count}  ", "bold cyan"),
+                    ("✅ Completed: ", "green"),
+                    (f"{completed_count}", "bold green"),
+                )
+                blocks.append(stats)
+                blocks.append(Text(""))  # Empty line
+
+                # Parse and render todos from output
+                # The output has sections: In Progress, Not Started, Completed
+                lines = output.split("\n")
+                current_section = None
+
+                for line in lines:
+                    if not line.strip():
+                        continue
+
+                    # Detect section headers
+                    if "In Progress:" in line:
+                        current_section = "in_progress"
+                        blocks.append(Text(line, style="bold yellow"))
+                    elif "Not Started:" in line:
+                        current_section = "not_started"
+                        blocks.append(Text(line, style="bold cyan"))
+                    elif "Completed:" in line:
+                        current_section = "completed"
+                        blocks.append(Text(line, style="bold green"))
+                    elif "Summary:" in line or "Task List:" in line:
+                        # Skip these as we already have our custom header
+                        continue
+                    else:
+                        # Render individual todo items with appropriate styling
+                        if current_section == "in_progress":
+                            blocks.append(Text(line, style="yellow"))
+                        elif current_section == "not_started":
+                            blocks.append(Text(line, style="cyan"))
+                        elif current_section == "completed":
+                            blocks.append(Text(line, style="dim green"))
+            else:
+                # For non-list actions (add, start, complete, remove, clear)
+                todo_id = args.get("id")
+                summary_parts = []
+
+                if isinstance(action, str) and action:
+                    action_icons = {
+                        "add": "➕",
+                        "start": "▶️",
+                        "complete": "✅",
+                        "remove": "🗑️",
+                        "clear": "🧹",
+                    }
+                    icon = action_icons.get(action.lower(), "")
+                    summary_parts.append(f"{icon} {action}")
+
+                if isinstance(todo_id, str) and todo_id:
+                    summary_parts.append(f"#{todo_id}")
+
+                # Add progress for complete action
+                if metadata and action == "complete":
+                    completed = metadata.get("completed")
+                    total = metadata.get("total")
+                    progress = metadata.get("progress_percent")
+
+                    if progress is not None:
+                        bar_length = 20
+                        filled = int((progress / 100) * bar_length)
+                        bar = "█" * filled + "░" * (bar_length - filled)
+                        summary_parts.append(f"{progress}% {bar}")
+
+                if summary_parts:
+                    blocks.append(Text(" • ".join(summary_parts), style="muted"))
+
+                # Render the output
+                output_display = truncate_text(
+                    output,
+                    self.config.model_name,
+                    self._max_block_tokens,
+                )
+                blocks.append(Text(output_display, style="white"))
         # elif name == "memory" and success:
         #     action = args.get("action")
         #     key = args.get("key")
