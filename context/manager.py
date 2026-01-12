@@ -22,7 +22,8 @@ class MessageItem:
             result["tool_call_id"] = self.tool_call_id
         if self.tool_calls:
             result["tool_calls"] = self.tool_calls
-        if self.content:
+        # Always include content for tool messages, even if empty
+        if self.content or self.role == "tool":
             result["content"] = self.content
         return result
 
