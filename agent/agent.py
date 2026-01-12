@@ -24,7 +24,7 @@ class Agent:
         self.config = config
         # self.client = LLMClinet(config=self.config)
         # self.context_manager = ContextManager(config=self.config)
-        # self.tool_registry = create_default_registry()
+        # self.tool_registry = create_default_registry(config=self.config)
         self.session: Session | None = Session(config=self.config)
 
     async def run(self, message: str) -> AsyncGenerator[AgentEvent, None]:

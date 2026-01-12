@@ -42,7 +42,7 @@ SIMHA_THEME = Theme(
         "tool": "gold1 bold",
         "tool.read": "cyan",
         "tool.write": "yellow",
-        "tool.shell": "bright_white",
+        "tool.shell": "magenta",
         "tool.network": "bright_blue",
         "tool.memory": "bright_green",
         "tool.mcp": "bright_cyan",
@@ -418,27 +418,27 @@ class TUI:
                     word_wrap=True,
                 )
             )
-        # elif name == "shell" and success:
-        #     command = args.get("command")
-        #     if isinstance(command, str) and command.strip():
-        #         blocks.append(Text(f"$ {command.strip()}", style="muted"))
+        elif name == "shell" and success:
+            command = args.get("command")
+            if isinstance(command, str) and command.strip():
+                blocks.append(Text(f"$ {command.strip()}", style="muted"))
 
-        #     if exit_code is not None:
-        #         blocks.append(Text(f"exit_code={exit_code}", style="muted"))
+            if exit_code is not None:
+                blocks.append(Text(f"exit_code={exit_code}", style="muted"))
 
-        #     output_display = truncate_text(
-        #         output,
-        #         self.config.model_name,
-        #         self._max_block_tokens,
-        #     )
-        #     blocks.append(
-        #         Syntax(
-        #             output_display,
-        #             "text",
-        #             theme="monokai",
-        #             word_wrap=True,
-        #         )
-        #     )
+            output_display = truncate_text(
+                output,
+                self.config.model_name,
+                self._max_block_tokens,
+            )
+            blocks.append(
+                Syntax(
+                    output_display,
+                    "text",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )
         # elif name == "list_dir" and success:
         #     entries = metadata.get("entries")
         #     path = metadata.get("path")
