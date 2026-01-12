@@ -56,12 +56,12 @@ class SimhaCLI:
                             if command in ("exit", "quit"):
                                 break
                             else:
-                                console.print("\n[red]Use /exit to quit[/red]")
+                                console.print("\n[red]Use /exit or /quit to quit[/red]")
                             continue
 
                         await self._process_message(user_input)
                     except KeyboardInterrupt:
-                        console.print("\n[dim]Use /exit to quit[/dim]")
+                        console.print("\n[dim]Use /exit or /quit to quit[/dim]")
                     except EOFError:
                         break
         except KeyboardInterrupt:
@@ -74,7 +74,7 @@ class SimhaCLI:
 
     def _get_tool_kind(self, tool_name: str) -> str | None:
         tool_kind = None
-        tool = self.agent.tool_registry.get(tool_name)
+        tool = self.agent.session.tool_registry.get(tool_name)
         if not tool:
             tool_kind = None
 

@@ -65,6 +65,7 @@ class ToolResult:
     error: str | None = None
     metadata: dict[str, Any] | None = field(default_factory=dict)
     truncated: bool = False
+    diff: FileDiff | None = None
 
     @classmethod
     def error_result(cls, error: str, output: str = "", **kwargs: Any):

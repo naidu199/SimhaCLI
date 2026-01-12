@@ -91,6 +91,7 @@ class TUI:
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self.config = config
         self.cwd: Path = config.cwd
+        self._max_block_tokens = 320
 
     def print_welcome(self, title: str, lines: list[str]) -> None:
         body = "\n".join(lines)
@@ -268,7 +269,7 @@ class TUI:
         border_style = f"tool.{tool_kind}" if tool_kind else "tool"
 
         title = Text.assemble(
-            ("▶ ", "muted"),
+            ("▶ ", "gold1"),
             (name, "tool"),
             ("  ", "muted"),
             (f"#{call_id[:8]}", "muted"),
@@ -400,23 +401,23 @@ class TUI:
                         word_wrap=False,
                     )
                 )
-        # elif name in {"write_file", "edit"} and success and diff:
-        #     output_line = output.strip() if output.strip() else "Completed"
-        #     blocks.append(Text(output_line, style="muted"))
-        #     diff_text = diff
-        #     diff_display = truncate_text(
-        #         diff_text,
-        #         # self.config.model_name,
-        #         self._max_block_tokens,
-        #     )
-        #     blocks.append(
-        #         Syntax(
-        #             diff_display,
-        #             "diff",
-        #             theme="monokai",
-        #             word_wrap=True,
-        #         )
-        #     )
+        elif name in {"write_file", "edit"} and success and diff:
+            output_line = output.strip() if output.strip() else "Completed"
+            blocks.append(Text(output_line, style="muted"))
+            diff_text = diff
+            diff_display = truncate_text(
+                diff_text,
+                self.config.model_name,
+                self._max_block_tokens,
+            )
+            blocks.append(
+                Syntax(
+                    diff_display,
+                    "diff",  # syntax highlighting for diffs
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )
         # elif name == "shell" and success:
         #     command = args.get("command")
         #     if isinstance(command, str) and command.strip():
