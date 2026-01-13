@@ -8,7 +8,7 @@ from typing import Any
 
 from openai import project
 from config.config import Config
-from platformdirs import user_config_dir
+from platformdirs import user_config_dir, user_data_dir
 from utils.errors import ConfigError
 import logging
 
@@ -34,6 +34,10 @@ def get_config_file_path() -> Path:
     config_dir = get_config_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir / CONFIG_FILE_NAME
+
+
+def get_data_dir() -> Path:
+    return Path(user_data_dir("simhacli"))
 
 
 def _parse_toml(path: Path) -> dict:
