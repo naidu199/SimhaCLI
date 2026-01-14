@@ -2,6 +2,33 @@
 
 Visual representation of how SimhaCLI processes user requests, executes tools, and manages the complete agent lifecycle.
 
+**Last Updated:** January 14, 2026
+
+---
+
+## 🚀 New Architecture Highlights
+
+**Session-Based Design:**
+
+- Agent now uses **Session** object to manage state
+- Session encapsulates: LLM Client, Context Manager, Tool Registry
+- Persistent user memory loaded from `user_memory.json`
+- Turn counting and session tracking (UUID + timestamps)
+
+**11 Builtin Tools:**
+
+1. `read_file` - Read file contents with line numbers
+2. `write_file` - Create/overwrite files
+3. `edit_file` - Surgical text replacement
+4. `shell` - Execute shell commands (with safety blocking)
+5. `list_dir` - Directory listing
+6. `glob` - Pattern-based file search
+7. `grep` - Text search in files
+8. `web_search` - Search the web
+9. `web_fetch` - Fetch webpage content
+10. `todos` - Task management with priorities
+11. `memory` - Persistent key-value storage
+
 ---
 
 ## 1. Complete User Question Flow (End-to-End)
@@ -34,7 +61,8 @@ Visual representation of how SimhaCLI processes user requests, executes tools, a
                              │
                              ▼
                   ┌──────────────────────┐
-                  │  Initialize Agent    │
+                  │  Create Agent with   │
+                  │     Session          │
                   └──────────┬───────────┘
                              │
                 ┌────────────┼────────────┐
@@ -42,10 +70,13 @@ Visual representation of how SimhaCLI processes user requests, executes tools, a
                 ▼            ▼            ▼
     ┌─────────────────┐  ┌──────────┐  ┌──────────────┐
     │ Context Manager │  │   LLM    │  │     Tool     │
-    │   (Messages)    │  │  Client  │  │   Registry   │
+    │  (+ Memory)     │  │  Client  │  │   Registry   │
+    │                 │  │          │  │  (11 tools)  │
     └────────┬────────┘  └────┬─────┘  └──────┬───────┘
              │                │               │
              └────────────────┼───────────────┘
+                              │
+                    ALL INSIDE SESSION
                               │
                               ▼
                    ┌────────────────────────┐
@@ -56,6 +87,7 @@ Visual representation of how SimhaCLI processes user requests, executes tools, a
                                ▼
                    ┌────────────────────────┐
                    │   Get System Prompt    │
+                   │  (+ Tools + Memory)    │
                    └───────────┬────────────┘
                                │
                                ▼
@@ -71,6 +103,7 @@ Visual representation of how SimhaCLI processes user requests, executes tools, a
                                ▼                       │
                    ┌────────────────────────┐          │
                    │   Stream Response      │          │
+                   │  (Increment Turn)      │          │
                    └───────────┬────────────┘          │
                                │                       │
             ┌──────────────────┼──────────────────┐    │
@@ -109,8 +142,10 @@ Visual representation of how SimhaCLI processes user requests, executes tools, a
                    │
                    ▼
         ┌──────────────────────┐
-        │  Display Final       │
-        │   Response           │
+        │  No Tool Calls?      │
+        │  → Agent End         │
+        │  Has Tool Calls?     │
+        │  → Continue Loop     │
         └──────────┬───────────┘
                    │
                    ▼
@@ -134,6 +169,7 @@ Visual representation of how SimhaCLI processes user requests, executes tools, a
 ## 2. Tool Execution Flow
 
 ```
+
          ┌──────────────────────────┐
          │ LLM Requests Tool Call   │
          └────────────┬─────────────┘
@@ -761,14 +797,13 @@ START] DELTA]COMP]START] COMP]  END]
 - 🟢 **AGENT_END**: Agent completes successfully
 - 🔴 **AGENT_ERROR**: Error occurred
 
-### Tool Kinds
+### Tool Kinds (11 Builtin Tools - Updated!)
 
-- 📖 **READ**: Read-only operations (read_file)
-- ✏️ **WRITE**: Write operations (write_file)
-- 🖥️ **SHELL**: Shell command execution
-- 🌐 **NETWORK**: Network requests
-- 💾 **MEMORY**: Memory operations
-- 🔌 **MCP**: Model Context Protocol tools
+- 📖 **READ**: read_file, list_dir, glob, grep
+- ✏️ **WRITE**: write_file, edit_file
+- 🖥️ **SHELL**: shell (with 40+ blocked dangerous commands)
+- 🌐 **NETWORK**: web_search, web_fetch
+- 💾 **MEMORY**: todos (task management), memory (persistent key-value storage)
 
 ### Component Colors
 
@@ -778,3 +813,136 @@ START] DELTA]COMP]START] COMP]  END]
 - **Red**: Error states
 - **Blue**: Network operations
 - **White**: System operations
+
+---
+
+## 🆕 NEW: Session Architecture
+
+```
+┌───────────────────────────────────────────────────┐
+│                    SESSION                        │
+│  ┌──────────────────────────────────────────────┐ │
+│  │  • session_id: UUID                          │ │
+│  │  • created_at: timestamp                     │ │
+│  │  • updated_at: timestamp                     │ │
+│  │  • _turn_count: int                          │ │
+│  └──────────────────────────────────────────────┘ │
+│                                                   │
+│  ┌──────────────────┐  ┌──────────────────┐     │
+│  │  Context Manager │  │   LLM Client     │     │
+│  │   (Messages +    │  │   (OpenAI API)   │     │
+│  │   System Prompt  │  │                  │     │
+│  │   + User Memory  │  │                  │     │
+│  │   + Tool Docs)   │  │                  │     │
+│  └──────────────────┘  └──────────────────┘     │
+│                                                   │
+│  ┌─────────────────────────────────────────────┐ │
+│  │          Tool Registry (11 Tools)           │ │
+│  │  ┌─────────────────────────────────────┐   │ │
+│  │  │ read_file, write_file, edit_file    │   │ │
+│  │  │ shell, list_dir, glob, grep         │   │ │
+│  │  │ web_search, web_fetch               │   │ │
+│  │  │ todos, memory                       │   │ │
+│  │  └─────────────────────────────────────┘   │ │
+│  └─────────────────────────────────────────────┘ │
+│                                                   │
+│  Memory Loading:                                 │
+│    → Loads from: user_memory.json                │
+│    → Adds to System Prompt                       │
+│    → Available to LLM context                    │
+└───────────────────────────────────────────────────┘
+```
+
+### Key Changes:
+
+1. **Session-based**: All components now inside Session object
+2. **Turn tracking**: Each loop increments turn count
+3. **Memory integration**: Loads user_memory.json → system prompt
+4. **11 Tools**: Expanded from 1 tool to 11 builtin tools
+5. **Tool safety**: Shell tool blocks 40+ dangerous commands
+6. **Config injection**: Tools receive Config for better integration
+
+---
+
+## 🔧 Tool Safety & Features
+
+### Shell Tool Safety
+
+**Blocked Commands (40+):**
+
+```
+❌ rm -rf /, format c:, dd if=/dev/zero
+❌ shutdown, reboot, poweroff
+❌ chmod 777 /, icacls, takeown
+❌ curl, wget, ssh, scp (network exfiltration)
+❌ eval, exec, os.system (code execution)
+❌ Fork bombs: :(){ :|:& };:
+```
+
+**Features:**
+
+- Timeout protection (default 120s, max 600s)
+- Working directory support
+- stdout/stderr capture
+- Exit code tracking
+
+### Memory & Todos
+
+**Memory Tool:** Persistent JSON storage
+
+- Actions: set, get, delete, list, clear
+- Location: `~/.simhacli/user_memory.json`
+- Loaded into system prompt automatically
+
+**Todos Tool:** In-memory task management
+
+- Priorities: high 🔴, medium 🟡, low 🟢
+- States: not_started, in_progress, completed
+- Actions: add, start, complete, list, remove, clear
+- 8-character UUID per task
+
+### Web Tools
+
+**web_search:** Search engine queries
+**web_fetch:** Fetch and extract content from URLs
+
+---
+
+## 🔄 Updated Architecture Summary
+
+**Entry Point:** `main.py` → CLI interface with Click
+**Core Agent:** `agent/agent.py` → Orchestrates via Session
+**Session:** `agent/session.py` → **NEW!** Encapsulates LLM + Context + Tools
+**LLM Client:** `client/llm_client.py` → OpenAI API integration
+**Context:** `context/manager.py` → Message history + memory management
+**Tools:** `tools/` → **11 builtin tools** (up from 1!)
+**UI:** `ui/tui.py` → Rich terminal interface
+**Config:** `config/` → TOML-based configuration + data directory
+**Events:** `agent/events.py` → Event-driven architecture
+**Prompts:** `prompts/system.py` → System prompt + memory injection
+**Utils:** `utils/` → Helper functions (paths, text, errors)
+
+### Data Flow Summary (Updated)
+
+```
+User → CLI → Agent → Session (NEW!)
+                       ↓
+          ┌────────────┼────────────┐
+          │            │            │
+    Context     LLM Client    Tool Registry
+  (+ Memory)                   (11 Tools)
+          │            │            │
+          └────────────┼────────────┘
+                       ↓
+                OpenAI API (with tools)
+                       ↓
+              Stream Events
+                       ↓
+          Parse & Execute Tools
+                       ↓
+          Add Results to Context
+                       ↓
+        Continue Loop (Turn++)
+                       ↓
+              TUI Display
+```

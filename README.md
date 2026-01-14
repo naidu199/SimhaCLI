@@ -1,288 +1,134 @@
-# SimhaCLI 🦁 - AI Coding Agent
+<div align="center">
 
-## Project Flows
+# 🦁 SimhaCLI
 
-### 1. **Application Startup Flow**
+### AI-Powered Coding Agent for Your Terminal
 
-```
-main.py
-  ↓
-Load Config (config/loader.py)
-  ↓
-Validate Config (API keys, CWD)
-  ↓
-Initialize SimhaCLI
-  ↓
-Run Mode Selection:
-  ├─→ Single Message Mode (--prompt)
-  └─→ Interactive Mode (REPL)
-```
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-### 2. **Configuration Loading Flow**
+_Built by Narasimha Naidu Korrapti_
 
-```
-config/loader.py
-  ↓
-Load System Config (~/.simhacli/config.toml)
-  ↓
-Load Project Config (CWD/.simhacli/config.toml)
-  ↓
-Merge Configurations
-  ↓
-Load AGENT.MD (if exists)
-  ↓
-Return Config Object (config/config.py)
-```
+[Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Tools](#-builtin-tools) • [Architecture](#-architecture) • [Documentation](#-documentation)
 
-### 3. **Agent Execution Flow**
+</div>
 
-```
-User Input
-  ↓
-Agent.run() (agent/agent.py)
-  ↓
-Add User Message to Context
-  ↓
-Agentic Loop:
-  ├─→ LLM Chat Completion
-  ├─→ Stream Text Response
-  ├─→ Process Tool Calls (if any)
-  ├─→ Execute Tools
-  ├─→ Add Tool Results to Context
-  └─→ Repeat until completion
-  ↓
-Return Final Response
-```
+---
 
-### 4. **LLM Client Flow**
+## 📖 Overview
 
-```
-client/llm_client.py
-  ↓
-Get OpenAI Client
-  ↓
-Build Request (messages + tools)
-  ↓
-Chat Completion with Retry Logic:
-  ├─→ Rate Limit Handling
-  ├─→ Connection Error Retry
-  └─→ Exponential Backoff
-  ↓
-Stream Events:
-  ├─→ TEXT_DELTA (streaming text)
-  ├─→ TOOL_CALL_DELTA (tool invocation)
-  ├─→ TOOL_CALL_COMPLETE
-  └─→ MESSAGE_COMPLETE
-```
+**SimhaCLI** is a powerful terminal-based AI coding agent that brings the intelligence of Large Language Models directly into your development workflow. It seamlessly integrates with your codebase, understands context, and executes actions through a comprehensive set of builtin tools.
 
-### 5. **Context Management Flow**
+### Why SimhaCLI?
 
-```
-context/manager.py
-  ↓
-Initialize with System Prompt
-  ↓
-Message Operations:
-  ├─→ Add User Message
-  ├─→ Add Assistant Message (with tool_calls)
-  └─→ Add Tool Result
-  ↓
-Track Token Counts per Message
-  ↓
-Build Messages Array for LLM
-```
+- 🚀 **Session-Based Architecture**: Persistent context and memory across interactions
+- 🛠️ **11 Builtin Tools**: File operations, shell commands, web access, task management
+- 🔒 **Safety First**: Shell command blocking prevents dangerous operations
+- 💾 **Persistent Memory**: Remember user preferences and context
+- 🎨 **Beautiful TUI**: Rich terminal interface with syntax highlighting
+- ⚡ **Streaming Responses**: Real-time output as the agent thinks
+- 🔄 **Event-Driven**: Observable agent actions with full transparency
 
-### 6. **Tool Registry & Execution Flow**
+---
 
-```
-tools/registry.py
-  ↓
-Create Default Registry
-  ↓
-Register Builtin Tools
-  ↓
-Tool Invocation:
-  ├─→ Get Tool by Name
-  ├─→ Validate Parameters
-  ├─→ Create Tool Invocation
-  ├─→ Execute Tool
-  └─→ Return Tool Result
-```
+## ✨ Features
 
-### 7. **Tool Execution Flow**
+---
 
-```
-tools/base.py
-  ↓
-Tool Interface (Abstract)
-  ├─→ name
-  ├─→ description
-  ├─→ schema (Pydantic)
-  ├─→ kind (READ/WRITE/SHELL/NETWORK/MEMORY/MCP)
-  └─→ execute()
-  ↓
-Builtin Tool Example (tools/builtin/read_file.py):
-  ├─→ Validate Parameters
-  ├─→ Resolve File Path
-  ├─→ Check File Existence
-  ├─→ Read File Content
-  ├─→ Format with Line Numbers
-  ├─→ Truncate if needed
-  └─→ Return ToolResult
-```
+## ✨ Features
 
-### 8. **Event System Flow**
+### 🤖 Intelligent Agent
 
-```
-agent/events.py
-  ↓
-Event Types:
-  ├─→ AGENT_START
-  ├─→ AGENT_END
-  ├─→ AGENT_ERROR
-  ├─→ TEXT_DELTA
-  ├─→ TEXT_COMPLETE
-  ├─→ TOOL_CALL_START
-  ├─→ TOOL_CALL_COMPLETE
-  └─→ TOOL_CALL_ERROR
-  ↓
-Agent Yields Events
-  ↓
-SimhaCLI Handles Events
-  ↓
-TUI Displays Events
-```
+- **Agentic Loop**: Autonomous multi-turn conversations with tool usage
+- **Context Management**: Tracks conversation history with token counting
+- **Turn Tracking**: Session-based state management with UUIDs
+- **Streaming Output**: Real-time response generation
 
-### 9. **TUI (Terminal UI) Flow**
+### 🛠️ Comprehensive Toolset
 
-```
-ui/tui.py
-  ↓
-Initialize Rich Console with Theme
-  ↓
-Display Operations:
-  ├─→ Print Welcome Banner
-  ├─→ Stream Assistant Delta (live text)
-  ├─→ Display Tool Call Start
-  ├─→ Display Tool Call Complete
-  ├─→ Display Errors
-  └─→ Format Code/Markdown
-  ↓
-Input Operations:
-  └─→ Read User Input (REPL)
-```
+11 builtin tools across 5 categories:
 
-### 10. **Interactive Mode Flow**
+- **📖 Read**: `read_file`, `list_dir`, `glob`, `grep`
+- **✏️ Write**: `write_file`, `edit_file`
+- **🖥️ Shell**: `shell` (with 40+ blocked dangerous commands)
+- **🌐 Web**: `web_search`, `web_fetch`
+- **💾 Memory**: `todos` (task management), `memory` (persistent storage)
 
-```
-Interactive Loop (main.py)
-  ↓
-Display Welcome Message
-  ↓
-Initialize Agent
-  ↓
-Loop:
-  ├─→ Read User Input
-  ├─→ Handle Commands (/exit, /quit, /help)
-  ├─→ Process Message through Agent
-  ├─→ Stream Events to TUI
-  └─→ Repeat
-```
+### 🔒 Safety & Security
 
-### 11. **Response Streaming Flow**
+- Command blocking for dangerous operations (rm -rf, format, etc.)
+- Timeout protection on shell commands (120s default, 600s max)
+- File validation and error handling
+- Configurable working directory restrictions
 
-```
-client/response.py
-  ↓
-Stream Event Types:
-  ├─→ TEXT_DELTA (partial text)
-  ├─→ TOOL_CALL_DELTA (partial tool args)
-  ├─→ TOOL_CALL_COMPLETE (full tool call)
-  └─→ MESSAGE_COMPLETE (with usage)
-  ↓
-Parse Tool Arguments (JSON)
-  ↓
-Create Tool Result Messages
-```
+### 💾 Persistent Storage
 
-### 12. **System Prompt Generation Flow**
+- **User Memory**: JSON-based key-value storage (`~/.simhacli/user_memory.json`)
+- **Configuration**: System and project-level TOML configs
+- **Session Tracking**: UUID-based session management with timestamps
 
-```
-prompts/system.py
-  ↓
-Build System Prompt Sections:
-  ├─→ Identity (SimhaCLI agent role)
-  ├─→ AGENTS.md Specification
-  ├─→ Security Guidelines
-  ├─→ Developer Instructions (if configured)
-  ├─→ User Instructions (if configured)
-  └─→ Operational Guidelines
-  ↓
-Return Complete System Prompt
-```
+### 🎨 Rich Terminal UI
 
-### 13. **Utility Functions Flow**
+- Syntax-highlighted code display
+- Color-coded tool execution (cyan=read, yellow=write, white=shell)
+- Live streaming text output
+- Beautiful welcome banner and formatting
+- Error panels with detailed information
 
-```
-utils/
-  ├─→ paths.py
-  │   ├─→ Resolve Paths (absolute/relative)
-  │   ├─→ Display Relative Paths
-  │   └─→ Detect Binary Files
-  │
-  ├─→ text.py
-  │   ├─→ Count Tokens (tiktoken)
-  │   ├─→ Estimate Tokens
-  │   └─→ Truncate Text
-  │
-  └─→ errors.py
-      ├─→ AgentError (base)
-      └─→ ConfigError (config-specific)
-```
+---
 
-### 14. **Error Handling Flow**
+## 🚀 Installation
 
-```
-Errors Propagate:
-  ↓
-Tool Execution Error
-  ├─→ Return ToolResult.error_result()
-  ↓
-LLM API Error
-  ├─→ Retry with Exponential Backoff
-  ├─→ Yield StreamEvent.ERROR
-  ↓
-Agent Error
-  ├─→ Yield AgentEvent.agent_error()
-  ↓
-SimhaCLI Catches Error
-  ↓
-TUI Displays Error to User
-```
+### Prerequisites
 
-## Architecture Summary
+- **Python 3.10+**
+- **OpenAI API Key** (or compatible API)
 
-**Entry Point:** `main.py` → CLI interface with Click
-**Core Agent:** `agent/agent.py` → Orchestrates LLM + Tools
-**LLM Client:** `client/llm_client.py` → OpenAI API integration
-**Context:** `context/manager.py` → Message history management
-**Tools:** `tools/` → Extensible tool system (read_file, etc.)
-**UI:** `ui/tui.py` → Rich terminal interface
-**Config:** `config/` → TOML-based configuration
-**Events:** `agent/events.py` → Event-driven architecture
-**Prompts:** `prompts/system.py` → System prompt generation
-**Utils:** `utils/` → Helper functions (paths, text, errors)
+### Steps
 
-## Data Flow Summary
+1. **Clone the repository**
 
-```
-User → CLI → Agent → Context + LLM Client → OpenAI API
-                ↓                              ↓
-            Tool Registry ← Stream Events ← Response
-                ↓                              ↓
-            Execute Tool                    Parse Events
-                ↓                              ↓
-            Tool Result → Add to Context → Continue Loop
-                                              ↓
-                                         TUI Display
-```
+   ```bash
+   git clone https://github.com/naidu199/SimhaCLI.git
+   cd SimhaCLI
+   ```
+
+2. **Create virtual environment**
+
+   ```bash
+   python -m venv venv
+
+   # Windows
+   venv\Scripts\activate
+
+   # Linux/Mac
+   source venv/bin/activate
+   ```
+
+3. **Install dependencies**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Set up environment variables**
+
+   ```bash
+   # Windows
+   set API_KEY=your_api_key_here
+   set API_BASE_URL=https://api.openai.com/v1
+
+   # Linux/Mac
+   export API_KEY=your_api_key_here
+   export API_BASE_URL=https://api.openai.com/v1
+   ```
+
+5. **Configure (Optional)**
+   ```bash
+   # Create system config
+   mkdir -p ~/.simhacli
+   # Edit ~/.simhacli/config.toml
+   ```
+
+---
