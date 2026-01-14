@@ -4,23 +4,23 @@ import platform
 from config.config import Config
 from tools.base import Tool
 
-# from tools.base import Tool
+from tools.base import Tool
 
 
 def get_system_prompt(
     config: Config,
     user_memory: str | None = None,
-    # tools: list[Tool] | None = None,
+    tools: list[Tool] | None = None,
 ) -> str:
     parts = []
 
     # Identity and role
     parts.append(_get_identity_section())
     # Environment
-    # parts.append(_get_environment_section(config))
+    parts.append(_get_environment_section(config))
 
-    # if tools:
-    #     parts.append(_get_tool_guidelines_section(tools))
+    if tools:
+        parts.append(_get_tool_guidelines_section(tools))
 
     # AGENTS.md spec
     parts.append(_get_agents_md_section())
@@ -57,19 +57,19 @@ Your capabilities:
 You are pair programming with the user to help them accomplish their goals. You should be proactive, thorough and focused on delivering high-quality results."""
 
 
-# def _get_environment_section(config: Config) -> str:
-#     """Generate the environment section."""
-#     now = datetime.now()
-#     os_info = f"{platform.system()} {platform.release()}"
+def _get_environment_section(config: Config) -> str:
+    """Generate the environment section."""
+    now = datetime.now()
+    os_info = f"{platform.system()} {platform.release()}"
 
-#     return f"""# Environment
+    return f"""# Environment
 
-# - **Current Date**: {now.strftime("%A, %B %d, %Y")}
-# - **Operating System**: {os_info}
-# - **Working Directory**: {config.cwd}
-# - **Shell**: {_get_shell_info()}
+- **Current Date**: {now.strftime("%A, %B %d, %Y")}
+- **Operating System**: {os_info}
+- **Working Directory**: {config.cwd}
+- **Shell**: {_get_shell_info()}
 
-# The user has granted you access to run tools in service of their request. Use them when needed."""
+The user has granted you access to run tools in service of their request. Use them when needed."""
 
 
 def _get_shell_info() -> str:
@@ -227,68 +227,68 @@ The following information has been stored from previous interactions:
 Use this information to personalize your responses and maintain consistency."""
 
 
-# def _get_tool_guidelines_section(tools: list[Tool]) -> str:
-#     """Generate tool usage guidelines."""
+def _get_tool_guidelines_section(tools: list[Tool]) -> str:
+    """Generate tool usage guidelines."""
 
-#     regular_tools = [t for t in tools if not t.name.startswith("subagent_")]
-#     subagent_tools = [t for t in tools if t.name.startswith("subagent_")]
+    regular_tools = [t for t in tools if not t.name.startswith("subagent_")]
+    subagent_tools = [t for t in tools if t.name.startswith("subagent_")]
 
-#     guidelines = """# Tool Usage Guidelines
+    guidelines = """# Tool Usage Guidelines
 
-# You have access to the following tools to accomplish your tasks:
+You have access to the following tools to accomplish your tasks:
 
-# """
+"""
 
-#     for tool in regular_tools:
-#         description = tool.description
-#         if len(description) > 100:
-#             description = description[:100] + "..."
-#         guidelines += f"- **{tool.name}**: {description}\n"
+    for tool in regular_tools:
+        description = tool.description
+        if len(description) > 100:
+            description = description[:100] + "..."
+        guidelines += f"- **{tool.name}**: {description}\n"
 
-#     if subagent_tools:
-#         guidelines += "\n## Sub-Agents\n\n"
-#         for tool in subagent_tools:
-#             description = tool.description
-#             if len(description) > 100:
-#                 description = description[:100] + "..."
-#             guidelines += f"- **{tool.name}**: {description}\n"
+    if subagent_tools:
+        guidelines += "\n## Sub-Agents\n\n"
+        for tool in subagent_tools:
+            description = tool.description
+            if len(description) > 100:
+                description = description[:100] + "..."
+            guidelines += f"- **{tool.name}**: {description}\n"
 
-#     guidelines += """
-# ## Best Practices
+    guidelines += """
+## Best Practices
 
-# 1. **File Operations**:
-#    - Use `read_file` before editing to understand current content
-#    - Use `edit` for surgical changes (search/replace)
-#    - Use `write_file` for creating new files or complete rewrites
+1. **File Operations**:
+   - Use `read_file` before editing to understand current content
+   - Use `edit` for surgical changes (search/replace)
+   - Use `write_file` for creating new files or complete rewrites
 
-# 2. **Search and Discovery**:
-#    - Use `grep` to find code by content
-#    - Use `glob` to find files by name pattern
-#    - Use `list_dir` to explore directory structure
+2. **Search and Discovery**:
+   - Use `grep` to find code by content
+   - Use `glob` to find files by name pattern
+   - Use `list_dir` to explore directory structure
 
-# 3. **Shell Commands**:
-#    - Use `shell` for running commands, tests, builds
-#    - Prefer read-only commands when just gathering information
-#    - Be cautious with commands that modify state
+3. **Shell Commands**:
+   - Use `shell` for running commands, tests, builds
+   - Prefer read-only commands when just gathering information
+   - Be cautious with commands that modify state
 
-# 4. **Task Management**:
-#    - Use `todos` to track multi-step tasks
-#    - Mark tasks as completed as you finish them
+4. **Task Management**:
+   - Use `todos` to track multi-step tasks
+   - Mark tasks as completed as you finish them
 
-# 5. **Memory**:
-#    - Use `memory` to store important user preferences
-#    - Retrieve stored preferences when relevant"""
+5. **Memory**:
+   - Use `memory` to store important user preferences
+   - Retrieve stored preferences when relevant"""
 
-#     if subagent_tools:
-#         guidelines += """
-# 6. **Sub-Agents**:
-#    - Use sub-agents for complex codebase exploration, code review, or specialized multi-step tasks
-#    - Sub-agents run with isolated context and have limited tool access
-#    - Provide clear, specific goals when invoking sub-agents
-#    - For simple queries (like finding a specific function), use direct tools (`grep`, `read_file`) instead
-#    - Use sub-agents when the task involves complex refactoring, codebase exploration, or system-wide analysis"""
+    if subagent_tools:
+        guidelines += """
+6. **Sub-Agents**:
+   - Use sub-agents for complex codebase exploration, code review, or specialized multi-step tasks
+   - Sub-agents run with isolated context and have limited tool access
+   - Provide clear, specific goals when invoking sub-agents
+   - For simple queries (like finding a specific function), use direct tools (`grep`, `read_file`) instead
+   - Use sub-agents when the task involves complex refactoring, codebase exploration, or system-wide analysis"""
 
-#     return guidelines
+    return guidelines
 
 
 def get_compression_prompt() -> str:

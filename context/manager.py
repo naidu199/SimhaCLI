@@ -5,6 +5,7 @@ from config.config import Config
 from prompts.system import get_system_prompt
 from dataclasses import dataclass, field
 
+from tools.base import Tool
 from utils.text import count_tokens
 
 
@@ -32,9 +33,14 @@ class ContextManager:
     def __init__(
         self,
         config: Config,
+        tools: list[Tool] | None,
         user_memory: str | None = None,
     ) -> None:
-        self._system_prompt = get_system_prompt(config=config, user_memory=user_memory)
+        self._system_prompt = get_system_prompt(
+            config=config,
+            user_memory=user_memory,
+            tools=tools,
+        )
         self._config = config
         self._model_name = config.model.name
         self._messages: list[MessageItem] = []
