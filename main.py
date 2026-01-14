@@ -88,14 +88,23 @@ class SimhaCLI:
             return None
 
         response_content = ""
+        text_started = False
         async for event in self.agent.run(message):
             # print(event)
             if event.type == AgentEventType.TEXT_DELTA:
+                if not text_started:
+                    # Stop spinner when text starts
+                    self.tui.stop_loading()
+                    self.tui.begin_assistant()
+                    text_started = True
                 content = event.data.get("content", "")
 
                 self.tui.stream_assistant_delta(content)
 
             elif event.type == AgentEventType.TEXT_COMPLETE:
+                if text_started:
+                    self.tui.end_assistant()
+                    text_started = False
                 response_content = event.data.get("content", "")
             elif event.type == AgentEventType.AGENT_START:
                 message = event.data.get("message", "")

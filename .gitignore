@@ -129,6 +129,9 @@ dmypy.json
 *.swo
 *~
 
+# SimhaCLI
+.simhacli/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -48,7 +48,7 @@ class Session:
         except Exception:
             return None
 
-    def incremenet_trun_count(self) -> None:
+    def increment_turn_count(self) -> None:
         self._turn_count += 1
         self.updated_at = datetime.now()
 

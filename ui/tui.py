@@ -11,6 +11,8 @@ from rich.prompt import Prompt
 from rich.console import Group
 from rich.syntax import Syntax
 from rich.markdown import Markdown
+from rich.status import Status
+from rich.live import Live
 
 from config.config import Config
 from tools.base import ToolConfirmation
@@ -92,6 +94,10 @@ class TUI:
         self.config = config
         self.cwd: Path = config.cwd
         self._max_block_tokens = 3200
+        self._buffered_content = ""
+        self._status: Status | None = None
+        self._live: Live | None = None
+        self._last_render_len = 0
 
     def print_welcome(self, title: str, lines: list[str]) -> None:
         body = "\n".join(lines)
@@ -124,22 +130,37 @@ class TUI:
         )
 
     def begin_assistant(self) -> None:
-        self.console.print()
-        self.console.print(
-            Rule(Text("Assistant Begin", style="assistant"), style="border")
-        )
+        # self.console.print()
         self.__assistant_stream_open = True
+        self._buffered_content = ""
+        self._last_render_len = 0
+        # Start live display for streaming Markdown
+        self._live = Live(
+            Text("▌", style="bright_yellow"),
+            console=self.console,
+            refresh_per_second=4,
+        )
+        self._live.start()
 
     def end_assistant(self) -> None:
         if self.__assistant_stream_open:
+            if self._live:
+                # Final render with complete Markdown
+                if self._buffered_content.strip():
+                    self._live.update(Markdown(self._buffered_content))
+                self._live.stop()
+                self._live = None
             self.console.print()
-            self.console.print(
-                Rule(Text("Assistant End", style="assistant"), style="border")
-            )
             self.__assistant_stream_open = False
+            self._buffered_content = ""
 
     def stream_assistant_delta(self, content: str) -> None:
-        self.console.print(content, end="", markup=False)
+        self._buffered_content += content
+        if self._live:
+            # Only re-render every 50 chars to reduce flicker
+            if len(self._buffered_content) - self._last_render_len > 50:
+                self._last_render_len = len(self._buffered_content)
+                self._live.update(Markdown(self._buffered_content + " ▌"))
 
     def display_error(self, error_message: str) -> None:
         self.console.print(f"[error]Error: {error_message}[/error]")
@@ -154,8 +175,24 @@ class TUI:
                 (message, "cyan"),
             )
         )
+        # Start loading indicator
+        self._status = self.console.status(
+            "[gold1]🦁 Simha is working...[/gold1]", spinner="dots"
+        )
+        self._status.start()
+
+    def stop_loading(self) -> None:
+        """Stop the loading indicator if it's running"""
+        if self._status:
+            self._status.stop()
+            self._status = None
 
     def agent_end(self, usage: dict[str, Any] | None = None) -> None:
+        # Stop loading indicator
+        if self._status:
+            self._status.stop()
+            self._status = None
+
         self.console.print()
 
         if usage:

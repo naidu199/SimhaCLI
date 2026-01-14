@@ -1,6 +1,4 @@
 from __future__ import annotations
-from json import tool
-from pathlib import Path
 from tkinter import N
 from typing import AsyncGenerator, final
 
@@ -49,7 +47,7 @@ class Agent:
         max_turns = self.config.max_turns
 
         for turn_no in range(max_turns):
-            self.session.incremenet_trun_count()
+            self.session.increment_turn_count()
             response_text = ""
 
             tool_schema = self.session.tool_registry.get_schemas()
