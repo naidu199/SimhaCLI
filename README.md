@@ -10,7 +10,7 @@
 
 _Built by Narasimha Naidu Korrapti_
 
-[Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Tools](#-builtin-tools) • [Architecture](#-architecture) • [Documentation](#-documentation)
+[Features](#-features) • [Installation](#-installation)
 
 </div>
 
@@ -29,10 +29,6 @@ _Built by Narasimha Naidu Korrapti_
 - 🎨 **Beautiful TUI**: Rich terminal interface with syntax highlighting
 - ⚡ **Streaming Responses**: Real-time output as the agent thinks
 - 🔄 **Event-Driven**: Observable agent actions with full transparency
-
----
-
-## ✨ Features
 
 ---
 
