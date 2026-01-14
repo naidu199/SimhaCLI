@@ -5,7 +5,7 @@ from typing import AsyncGenerator, final
 from click import Context
 from agent.events import AgentEvent, AgentEventType
 from agent.session import Session
-from client.llm_client import LLMClinet
+from client.llm_client import LLMClient
 from client.response import (
     StreamEventType,
     ToolCall,
@@ -20,7 +20,7 @@ from tools.registry import create_default_registry
 class Agent:
     def __init__(self, config: Config) -> None:
         self.config = config
-        # self.client = LLMClinet(config=self.config)
+        # self.client = LLMClient(config=self.config)
         # self.context_manager = ContextManager(config=self.config)
         # self.tool_registry = create_default_registry(config=self.config)
         self.session: Session | None = Session(config=self.config)

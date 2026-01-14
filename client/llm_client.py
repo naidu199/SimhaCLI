@@ -14,7 +14,7 @@ from .response import (
 )
 
 
-class LLMClinet:
+class LLMClient:
     def __init__(self, config: Config) -> None:
         self._client: AsyncOpenAI | None = None
         self._max_rate_limit_retries = 3

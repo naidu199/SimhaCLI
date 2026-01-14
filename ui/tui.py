@@ -150,7 +150,7 @@ class TUI:
                     self._live.update(Markdown(self._buffered_content))
                 self._live.stop()
                 self._live = None
-            self.console.print()
+            # self.console.print()
             self.__assistant_stream_open = False
             self._buffered_content = ""
 
@@ -193,7 +193,7 @@ class TUI:
             self._status.stop()
             self._status = None
 
-        self.console.print()
+        # self.console.print()
 
         if usage:
             text = Text.assemble(

@@ -1,7 +1,8 @@
 from datetime import datetime
 import json
 import uuid
-from client.llm_client import LLMClinet
+from client.llm_client import LLMClient
+
 from config.config import Config
 from config.loader import get_data_dir
 from context.manager import ContextManager
@@ -11,7 +12,7 @@ from tools.registry import create_default_registry
 class Session:
     def __init__(self, config: Config) -> None:
         self.config: Config = config
-        self.client: LLMClinet = LLMClinet(config=self.config)
+        self.client: LLMClient = LLMClient(config=self.config)
         self.tool_registry = create_default_registry(config=self.config)
         self.context_manager = ContextManager(
             config=self.config,
