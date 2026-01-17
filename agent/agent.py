@@ -134,6 +134,10 @@ class Agent:
                     tool_result.content,
                 )
 
+        yield AgentEvent.agent_error(
+            f"Maximum number of turns {self.config.max_turns} reached."
+        )
+
     async def __aenter__(self) -> Agent:
         return self
 

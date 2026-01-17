@@ -3,6 +3,7 @@ from logging import config
 from multiprocessing import context
 import os
 from pathlib import Path
+from typing import Any
 from click import File
 from pydantic import BaseModel, Field
 from regex import F
@@ -33,6 +34,11 @@ class Config(BaseModel):
 
     developer_instructions: str | None = None
     user_instructions: str | None = None
+
+    allowed_tools: list[str] | None = Field(
+        None,
+        description="If set, only these tools will be available to the agent",
+    )
 
     debug: bool = False
 
@@ -68,3 +74,6 @@ class Config(BaseModel):
             errors.append(f"CWD path does not exist or is not a directory: {self.cwd}")
 
         return errors
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.model_dump(mode="json")

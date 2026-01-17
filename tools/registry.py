@@ -5,12 +5,14 @@ from config.config import Config
 from tools.base import Tool, ToolInvocation, ToolResult
 import logging
 from tools.builtin import ReadFileTool, get_all_builtin_tools
+from tools.subagent import SubagentTool, get_default_subagent_definitions
 
 logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
-    def __init__(self):
+    def __init__(self, config: Config) -> None:
+        self.config = config
         self._tools: dict[str, Tool] = {}
         self._mcp_tools: dict[str, Tool] = {}
 
@@ -53,9 +55,9 @@ class ToolRegistry:
         # for mcp_tool in self._mcp_tools.values():
         #     tools.append(mcp_tool)
 
-        # if self.config.allowed_tools:
-        #     allowed_set = set(self.config.allowed_tools)
-        #     tools = [t for t in tools if t.name in allowed_set]
+        if self.config.allowed_tools:
+            allowed_set = set(self.config.allowed_tools)
+            tools = [t for t in tools if t.name in allowed_set]
 
         return tools
 
@@ -140,11 +142,12 @@ class ToolRegistry:
 
 
 def create_default_registry(config: Config) -> ToolRegistry:
-    registry = ToolRegistry()
+    registry = ToolRegistry(config=config)
 
     for tool_class in get_all_builtin_tools():
         registry.register(tool_class(config))
-    # for subagent_def in get_default_subagent_definitions():
-    #     registry.register(SubagentTool(config, subagent_def))
+
+    for subagent_def in get_default_subagent_definitions():
+        registry.register(SubagentTool(config, subagent_def))
 
     return registry
