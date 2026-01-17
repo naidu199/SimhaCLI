@@ -1,6 +1,6 @@
 [model]
 name = "mistralai/devstral-2512:free" # nvidia/nemotron-3-nano-30b-a3b:free #qwen/qwen3-coder:free
-
+context_window = 8192
 
 [mcp_servers.filesystem]
 command = "npx"

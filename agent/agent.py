@@ -8,13 +8,13 @@ from agent.session import Session
 from client.llm_client import LLMClient
 from client.response import (
     StreamEventType,
+    TokenUsage,
     ToolCall,
     ToolResultMessage,
     parse_tool_call_arguments,
 )
 from config.config import Config
-from context.manager import ContextManager
-from tools.registry import create_default_registry
+from context.compaction import ChatCompressor
 
 
 class Agent:
@@ -49,7 +49,16 @@ class Agent:
         for turn_no in range(max_turns):
             self.session.increment_turn_count()
             response_text = ""
-
+            usage: TokenUsage | None = None
+            # checking for the context overflow and trimming if necessary
+            if self.session.context_manager.needs_compression():
+                summary, usage = await self.session.chat_compressor.compress(
+                    self.session.context_manager
+                )
+                if summary:
+                    self.session.context_manager.replace_with_summary(summary)
+                    self.session.context_manager.set_latest_usage(usage)
+                    self.session.context_manager.add_usage(usage)
             tool_schema = self.session.tool_registry.get_schemas()
             tool_calls: list[ToolCall] = []
             has_error = False
@@ -96,6 +105,9 @@ class Agent:
                 response_text or "", tool_calls=tool_calls_dict
             )
             if not tool_calls:
+                if usage:
+                    self.session.context_manager.set_latest_usage(usage)
+                    self.session.context_manager.add_usage(usage)
                 return  # No tool calls, end the loop
 
             tool_call_results: list[ToolResultMessage] = []

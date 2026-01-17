@@ -5,6 +5,7 @@ from client.llm_client import LLMClient
 
 from config.config import Config
 from config.loader import get_data_dir
+from context.compaction import ChatCompressor
 from context.manager import ContextManager
 from tools.discovery import ToolDiscoveryManager
 from tools.mcp.mcp_manager import MCPManager
@@ -23,7 +24,7 @@ class Session:
         )
 
         self.mcp_manager = MCPManager(config=self.config)
-
+        self.chat_compressor = ChatCompressor(client=self.client)
         self.session_id: str = str(uuid.uuid4())
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
