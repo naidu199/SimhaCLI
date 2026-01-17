@@ -1,2 +1,7 @@
 [model]
 name = "mistralai/devstral-2512:free" # nvidia/nemotron-3-nano-30b-a3b:free #qwen/qwen3-coder:free
+
+
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "D:/SimhaCLI"]

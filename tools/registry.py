@@ -52,8 +52,8 @@ class ToolRegistry:
         for tool in self._tools.values():
             tools.append(tool)
 
-        # for mcp_tool in self._mcp_tools.values():
-        #     tools.append(mcp_tool)
+        for mcp_tool in self._mcp_tools.values():
+            tools.append(mcp_tool)
 
         if self.config.allowed_tools:
             allowed_set = set(self.config.allowed_tools)
