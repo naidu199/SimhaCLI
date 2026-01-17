@@ -141,9 +141,99 @@ Do NOT modify any files.""",
     timeout_seconds=300,
 )
 
+TEST_GENERATOR = SubagentDefinition(
+    name="test_generator",
+    description="Generates comprehensive test cases for code files or functions",
+    goal_prompt="""You are a test generation specialist.
+Your job is to analyze code and create thorough test cases.
+Consider edge cases, error conditions, and various input scenarios.
+Use read_file and grep to understand the code structure.
+Then use write_file to create test files with appropriate test frameworks.""",
+    allowed_tools=["read_file", "grep", "glob", "list_dir", "write_file"],
+    max_turns=15,
+    timeout_seconds=400,
+)
+
+DOCUMENTATION_WRITER = SubagentDefinition(
+    name="documentation_writer",
+    description="Creates or improves documentation for code, APIs, and projects",
+    goal_prompt="""You are a documentation specialist.
+Your job is to write clear, comprehensive documentation.
+Analyze the code to understand its purpose, usage, and behavior.
+Create or update documentation that is helpful for developers.
+Use read_file, grep, and glob to understand the codebase.
+Use write_file or edit_file to create or update documentation.""",
+    allowed_tools=["read_file", "grep", "glob", "list_dir", "write_file", "edit_file"],
+    max_turns=15,
+    timeout_seconds=400,
+)
+
+BUG_FIXER = SubagentDefinition(
+    name="bug_fixer",
+    description="Diagnoses and fixes bugs in the codebase",
+    goal_prompt="""You are a bug fixing specialist.
+Your job is to identify the root cause of bugs and implement fixes.
+First investigate the code to understand the issue.
+Then make targeted changes to fix the problem.
+Test your changes mentally and ensure they don't introduce new issues.
+Use read_file and grep to investigate, then edit_file to fix.""",
+    allowed_tools=["read_file", "grep", "glob", "list_dir", "edit_file", "shell"],
+    max_turns=20,
+    timeout_seconds=500,
+)
+
+REFACTORER = SubagentDefinition(
+    name="refactorer",
+    description="Refactors code to improve quality, readability, and maintainability",
+    goal_prompt="""You are a code refactoring specialist.
+Your job is to improve code quality without changing functionality.
+Look for code smells, duplication, poor naming, and structural issues.
+Apply refactoring patterns like Extract Method, Rename, Move, etc.
+Ensure the refactored code is cleaner and more maintainable.
+Use read_file and grep to analyze, then edit_file to refactor.""",
+    allowed_tools=["read_file", "grep", "glob", "list_dir", "edit_file"],
+    max_turns=20,
+    timeout_seconds=500,
+)
+
+DEPENDENCY_ANALYZER = SubagentDefinition(
+    name="dependency_analyzer",
+    description="Analyzes project dependencies and suggests updates or improvements",
+    goal_prompt="""You are a dependency analysis specialist.
+Your job is to analyze project dependencies and their usage.
+Check for outdated packages, security vulnerabilities, and unused dependencies.
+Suggest appropriate updates and improvements.
+Use read_file to examine dependency files and grep to find usage patterns.
+Do NOT modify files unless specifically asked.""",
+    allowed_tools=["read_file", "grep", "glob", "list_dir", "shell"],
+    max_turns=12,
+    timeout_seconds=350,
+)
+
+SECURITY_AUDITOR = SubagentDefinition(
+    name="security_auditor",
+    description="Performs security audits to identify vulnerabilities and security issues",
+    goal_prompt="""You are a security audit specialist.
+Your job is to identify security vulnerabilities in the code.
+Look for common issues like SQL injection, XSS, insecure dependencies,
+hardcoded credentials, insecure configurations, and authentication flaws.
+Provide detailed findings with severity levels and remediation advice.
+Use read_file, grep, and glob to examine the codebase.
+Do NOT modify any files.""",
+    allowed_tools=["read_file", "grep", "glob", "list_dir"],
+    max_turns=15,
+    timeout_seconds=400,
+)
+
 
 def get_default_subagent_definitions() -> list[SubagentDefinition]:
     return [
         CODEBASE_INVESTIGATOR,
         CODE_REVIEWER,
+        TEST_GENERATOR,
+        DOCUMENTATION_WRITER,
+        BUG_FIXER,
+        REFACTORER,
+        DEPENDENCY_ANALYZER,
+        SECURITY_AUDITOR,
     ]
