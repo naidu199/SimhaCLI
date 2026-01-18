@@ -2,6 +2,8 @@ from datetime import datetime
 from itertools import count
 import token
 from typing import Any
+
+from regex import P
 from client.response import TokenUsage
 from config.config import Config
 from prompts.system import get_system_prompt
@@ -18,6 +20,7 @@ class MessageItem:
     tool_call_id: str | None = None
     tool_calls: list[dict[str, Any]] | None = field(default_factory=list)
     token_count: int | None = None  # depends upon the model tokenizer
+    pruned_at: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"role": self.role}
@@ -32,6 +35,9 @@ class MessageItem:
 
 
 class ContextManager:
+    PRUNE_PROTECT_TOKENS = 40000  # Minimum tokens to protect from pruning
+    PRUNE_MINIMUM_TOKENS = 20000  # Minimum tokens to prune
+
     def __init__(
         self,
         config: Config,

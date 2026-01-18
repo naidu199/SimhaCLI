@@ -108,6 +108,9 @@ class Agent:
                 if usage:
                     self.session.context_manager.set_latest_usage(usage)
                     self.session.context_manager.add_usage(usage)
+
+                self.session.context_manager.prune_tool_outputs()
+
                 return  # No tool calls, end the loop
 
             tool_call_results: list[ToolResultMessage] = []
