@@ -63,6 +63,10 @@ class ContextManager:
     def total_usage(self) -> TokenUsage:
         return self._total_usage
 
+    @total_usage.setter
+    def total_usage(self, value: TokenUsage) -> None:
+        self._total_usage = value
+
     @property
     def get_total_usage(self) -> TokenUsage:
         return self._total_usage

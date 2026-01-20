@@ -273,8 +273,8 @@ class SimhaCLI:
                                 msg.get("tool_call_id", ""), msg.get("content", "")
                             )
 
-                    await self.agent.session.client.close()
-                    await self.agent.session.mcp_manager.shutdown()
+                    await self.agent.session.client.close_client()
+                    await self.agent.session.mcp_manager.shutdown_mcp()
 
                     self.agent.session = session
                     console.print(
@@ -327,8 +327,8 @@ class SimhaCLI:
                                 msg.get("tool_call_id", ""), msg.get("content", "")
                             )
 
-                    await self.agent.session.client.close()
-                    await self.agent.session.mcp_manager.shutdown()
+                    await self.agent.session.client.close_client()
+                    await self.agent.session.mcp_manager.shutdown_mcp()
 
                     self.agent.session = session
                     console.print(
