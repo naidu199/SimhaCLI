@@ -37,7 +37,14 @@ def get_config_file_path() -> Path:
 
 
 def get_data_dir() -> Path:
-    return Path(user_data_dir("simhacli"))
+    # On Windows, user_data_dir returns something like:
+    # C:\Users\<User>\AppData\Local\<appname>\<appname>
+    # We want just C:\Users\<User>\AppData\Local\simhacli
+    data_path = Path(user_data_dir("simhacli"))
+    # Check if it has double simhacli and fix it
+    if data_path.name == "simhacli" and data_path.parent.name == "simhacli":
+        data_path = data_path.parent
+    return data_path
 
 
 def _parse_toml(path: Path) -> dict:

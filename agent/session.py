@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+from typing import Any
 import uuid
 from client.llm_client import LLMClient
 
@@ -37,7 +38,7 @@ class Session:
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
 
-        self._turn_count: int = 0
+        self.turn_count: int = 0
 
     async def initialize(self) -> None:
         await self.mcp_manager.initialize()
@@ -74,7 +75,21 @@ class Session:
             return None
 
     def increment_turn_count(self) -> None:
-        self._turn_count += 1
+        self.turn_count += 1
         self.updated_at = datetime.now()
 
-        return self._turn_count
+        return self.turn_count
+
+    def get_stats(self) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "turn_count": self.turn_count,
+            "message_count": (
+                self.context_manager.get_message_count if self.context_manager else 0
+            ),
+            "token_usage": self.context_manager.get_total_usage,
+            "tools_available": len(self.tool_registry.get_tools()),
+            "mcp_servers": self.tool_registry.connected_mcp_servers,
+        }
