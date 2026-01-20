@@ -1,6 +1,7 @@
 from __future__ import annotations
 from enum import Enum
 from dataclasses import dataclass, field
+from http.client import LOOP_DETECTED
 from typing import Any
 
 from regex import T
@@ -24,6 +25,8 @@ class AgentEventType(str, Enum):
     TOOL_CALL_END = "tool_call_end"
     TOOL_CALL_ERROR = "tool_call_error"
     TOOL_CALL_COMPLETE = "tool_call_complete"
+
+    LOOP_DETECTED = "loop_detected"
 
 
 @dataclass

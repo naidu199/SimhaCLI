@@ -2,8 +2,10 @@ from __future__ import annotations
 from enum import Enum
 import os
 from pathlib import Path
+from pyexpat import model
+from tkinter import ON
 from typing import Any
-from click import File
+from click import File, command
 from cyclopts import App
 from pydantic import BaseModel, Field, model_validator
 
@@ -63,6 +65,30 @@ class ApprovalPolicy(str, Enum):
     YOLO = "yolo"
 
 
+class HookTrigger(str, Enum):
+    BEFORE_TOOL = "before_tool"
+    AFTER_TOOL = "after_tool"
+    BEFORE_AGENT = "before_agent"
+    AFTER_AGENT = "after_agent"
+    ON_ERROR = "on_error"
+
+
+class HookConfig(BaseModel):
+    name: str
+    trigger: HookTrigger
+    command: str | None = None
+    script: str | None = None
+    time_out_sec: float = 30.0
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def validate_hook(self) -> HookConfig:
+        if self.command is None and self.script is None:
+            raise ValueError("Hook must have either 'command' or 'script' defined.")
+
+        return self
+
+
 class Config(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
     cwd: Path = Field(default_factory=Path.cwd())
@@ -75,7 +101,8 @@ class Config(BaseModel):
     developer_instructions: str | None = None
     user_instructions: str | None = None
     approval: ApprovalPolicy = ApprovalPolicy.ON_REQUEST
-
+    hooks_enabled: bool = True
+    hooks: list[HookConfig] = Field(default_factory=list)
     allowed_tools: list[str] | None = Field(
         None,
         description="If set, only these tools will be available to the agent",

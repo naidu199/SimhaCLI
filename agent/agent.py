@@ -12,6 +12,7 @@ from client.response import (
     parse_tool_call_arguments,
 )
 from config.config import Config
+from prompts.system import create_loop_breaker_prompt
 from tools.base import ToolConfirmation
 
 
@@ -32,6 +33,7 @@ class Agent:
         self.session.approval_manager.confirmation_callback = confirmation_callback
 
     async def run(self, message: str) -> AsyncGenerator[AgentEvent, None]:
+        await self.session.hook_system.trigger_before_agent(message)
         yield AgentEvent.agent_start(message=message)
         self.session.context_manager.add_user_message(message)
 
@@ -43,10 +45,14 @@ class Agent:
                 if event.type == AgentEventType.TEXT_COMPLETE:
                     final_message = event.data.get("content", "")
                     # yield AgentEvent.text_complete(content=final_message)
-
+            await self.session.hook_system.trigger_after_agent(
+                user_message=message,
+                agent_response=final_message or "",
+            )
             yield AgentEvent.agent_end(response=final_message)
         except Exception as e:
             yield AgentEvent.agent_error(f"Agent encountered an error: {str(e)}")
+            await self.session.hook_system.trigger_on_error(e)
 
     async def _agentic_loop(self) -> AsyncGenerator[AgentEvent, None]:
 
@@ -110,6 +116,14 @@ class Agent:
             self.session.context_manager.add_assistant_message(
                 response_text or "", tool_calls=tool_calls_dict
             )
+
+            if response_text:
+                yield AgentEvent.text_complete(response_text)
+                self.session.loop_detector.record_action(
+                    "response",
+                    text=response_text,
+                )
+
             if not tool_calls:
                 if usage:
                     self.session.context_manager.set_latest_usage(usage)
@@ -130,11 +144,18 @@ class Agent:
                     arguments=parsed_args,
                 )
 
+                self.session.loop_detector.record_action(
+                    "tool_call",
+                    tool_name=tool_call.name,
+                    args=parse_tool_call_arguments(tool_call.arguments or ""),
+                )
+
                 result = await self.session.tool_registry.invoke(
                     tool_call.name or "",
                     parsed_args,
                     self.config.cwd,
                     self.session.approval_manager,
+                    self.session.hook_system,
                 )
 
                 yield AgentEvent.tool_call_complete(
@@ -155,6 +176,13 @@ class Agent:
                     tool_result.tool_call_id,
                     tool_result.content,
                 )
+            loop_detector_value = self.session.loop_detector.check_for_loop()
+            if loop_detector_value:
+                loop_prompt = create_loop_breaker_prompt(
+                    loop_description=loop_detector_value,
+                )
+                self.session.context_manager.add_user_message(loop_prompt)
+                continue  # Skip executing the tool and continue the loop
             if usage:
                 self.session.context_manager.set_latest_usage(usage)
                 self.session.context_manager.add_usage(usage)

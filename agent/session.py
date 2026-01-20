@@ -6,7 +6,9 @@ from client.llm_client import LLMClient
 from config.config import Config
 from config.loader import get_data_dir
 from context.compaction import ChatCompressor
+from context.loop_detector import LoopDetector
 from context.manager import ContextManager
+from hooks.hook_system import HookSystem
 from safety.approval import ApprovalManager
 from tools.discovery import ToolDiscoveryManager
 from tools.mcp.mcp_manager import MCPManager
@@ -27,7 +29,9 @@ class Session:
             approval_policy=self.config.approval,
             cwd=self.config.cwd,
         )
+        self.hook_system = HookSystem(config=self.config)
         self.mcp_manager = MCPManager(config=self.config)
+        self.loop_detector = LoopDetector()
         self.chat_compressor = ChatCompressor(client=self.client)
         self.session_id: str = str(uuid.uuid4())
         self.created_at = datetime.now()
