@@ -1,8 +1,10 @@
 from __future__ import annotations
+from enum import Enum
 import os
 from pathlib import Path
 from typing import Any
 from click import File
+from cyclopts import App
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -51,6 +53,16 @@ class MCPServerConfig(BaseModel):
         return self
 
 
+class ApprovalPolicy(str, Enum):
+    ON_REQUEST = "on_request"
+    ALWAYS = "always"
+    ON_FAILURE = "on_failure"
+    AUTO_APPROVE = "auto_approve"
+    AUTO_EDIT = "auto_edit"
+    NEVER = "never"
+    YOLO = "yolo"
+
+
 class Config(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
     cwd: Path = Field(default_factory=Path.cwd())
@@ -62,6 +74,7 @@ class Config(BaseModel):
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
     developer_instructions: str | None = None
     user_instructions: str | None = None
+    approval: ApprovalPolicy = ApprovalPolicy.ON_REQUEST
 
     allowed_tools: list[str] | None = Field(
         None,

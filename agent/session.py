@@ -7,6 +7,7 @@ from config.config import Config
 from config.loader import get_data_dir
 from context.compaction import ChatCompressor
 from context.manager import ContextManager
+from safety.approval import ApprovalManager
 from tools.discovery import ToolDiscoveryManager
 from tools.mcp.mcp_manager import MCPManager
 from tools.registry import create_default_registry
@@ -22,7 +23,10 @@ class Session:
             config=self.config,
             registry=self.tool_registry,
         )
-
+        self.approval_manager = ApprovalManager(
+            approval_policy=self.config.approval,
+            cwd=self.config.cwd,
+        )
         self.mcp_manager = MCPManager(config=self.config)
         self.chat_compressor = ChatCompressor(client=self.client)
         self.session_id: str = str(uuid.uuid4())

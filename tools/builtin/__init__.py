@@ -10,7 +10,7 @@ from tools.builtin.shell import ShellTool
 from tools.builtin.todo import TodosTool
 from tools.builtin.web_fetch import WebFetchTool
 from tools.builtin.web_search import WebSearchTool
-from tools.builtin.wite_file import WriteFileTool
+from tools.builtin.write_file import WriteFileTool
 
 __all__ = [
     "ReadFileTool",

@@ -1,11 +1,9 @@
 from __future__ import annotations
-from tkinter import N
-from typing import AsyncGenerator, final
 
-from click import Context
+from typing import AsyncGenerator, Awaitable, Callable
+
 from agent.events import AgentEvent, AgentEventType
 from agent.session import Session
-from client.llm_client import LLMClient
 from client.response import (
     StreamEventType,
     TokenUsage,
@@ -14,16 +12,24 @@ from client.response import (
     parse_tool_call_arguments,
 )
 from config.config import Config
-from context.compaction import ChatCompressor
+from tools.base import ToolConfirmation
 
 
 class Agent:
-    def __init__(self, config: Config) -> None:
+    def __init__(
+        self,
+        config: Config,
+        confirmation_callback: (
+            Callable[[ToolConfirmation], Awaitable[bool]] | None
+        ) = None,
+    ) -> None:
         self.config = config
         # self.client = LLMClient(config=self.config)
         # self.context_manager = ContextManager(config=self.config)
         # self.tool_registry = create_default_registry(config=self.config)
         self.session: Session | None = Session(config=self.config)
+
+        self.session.approval_manager.confirmation_callback = confirmation_callback
 
     async def run(self, message: str) -> AsyncGenerator[AgentEvent, None]:
         yield AgentEvent.agent_start(message=message)
@@ -128,6 +134,7 @@ class Agent:
                     tool_call.name or "",
                     parsed_args,
                     self.config.cwd,
+                    self.session.approval_manager,
                 )
 
                 yield AgentEvent.tool_call_complete(
@@ -148,6 +155,11 @@ class Agent:
                     tool_result.tool_call_id,
                     tool_result.content,
                 )
+            if usage:
+                self.session.context_manager.set_latest_usage(usage)
+                self.session.context_manager.add_usage(usage)
+
+            self.session.context_manager.prune_tool_outputs()
 
         yield AgentEvent.agent_error(
             f"Maximum number of turns {self.config.max_turns} reached."
