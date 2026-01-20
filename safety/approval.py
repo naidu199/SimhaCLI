@@ -286,12 +286,18 @@ class ApprovalManager:
             if decision != ApprovalDecision.NEEDS_CONFIRMATION:
                 return decision
 
+        # Check if any paths are outside the workspace
+        has_outside_path = False
         for path in context.affected_paths:
-            path_decision = ApprovalDecision.NEEDS_CONFIRMATION
-            if path.is_relative_to(self.cwd):
-                path_decision = ApprovalDecision.APPROVED
-            else:
-                return path_decision
+            if not path.is_relative_to(self.cwd):
+                has_outside_path = True
+                break
+
+        # If there are paths outside the workspace, require confirmation
+        if has_outside_path:
+            if self.approval_policy == ApprovalPolicy.YOLO:
+                return ApprovalDecision.APPROVED
+            return ApprovalDecision.NEEDS_CONFIRMATION
 
         if context.is_dangerous:
             if self.approval_policy == ApprovalPolicy.YOLO:

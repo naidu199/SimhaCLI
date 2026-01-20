@@ -769,6 +769,12 @@ class TUI:
         self.console.print(panel)
 
     def handle_confirmation(self, confirmation: ToolConfirmation) -> bool:
+        # Stop any active status/spinner to allow user input
+        was_status_active = self._status is not None
+        if self._status:
+            self._status.stop()
+            self._status = None
+
         output = [
             Text(confirmation.tool_name, style="tool"),
             Text(confirmation.description, style="code"),
@@ -803,6 +809,13 @@ class TUI:
         response = Prompt.ask(
             "\nApprove?", choices=["y", "n", "yes", "no"], default="n"
         )
+
+        # Restart status if it was active before
+        if was_status_active:
+            self._status = self.console.status(
+                "[gold1]🦁 Simha is working...[/gold1]", spinner="dots"
+            )
+            self._status.start()
 
         return response.lower() in {"y", "yes"}
 
