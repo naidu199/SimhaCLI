@@ -79,9 +79,23 @@ _Built by Narasimha Naidu Korrapti_
 ### Prerequisites
 
 - **Python 3.10+**
-- **OpenAI API Key** (or compatible API)
+- **API Key** (OpenAI, Gemini, or compatible API)
 
-### Steps
+### Option 1: Install from PyPI (Recommended)
+
+```bash
+pip install simhacli
+```
+
+After installation, you can run SimhaCLI from anywhere:
+
+```bash
+simhacli                    # Start interactive mode
+simhacli "explain this code" # Run a single prompt
+simhacli --help             # Show help
+```
+
+### Option 2: Install from Source
 
 1. **Clone the repository**
 
@@ -90,9 +104,33 @@ _Built by Narasimha Naidu Korrapti_
    cd SimhaCLI
    ```
 
-2. **Create virtual environment**
+2. **Install globally (access from anywhere)**
 
    ```bash
+   pip install -e .
+   ```
+
+   Or install without editable mode:
+
+   ```bash
+   pip install .
+   ```
+
+3. **Now you can use `simhacli` from anywhere:**
+
+   ```bash
+   simhacli                    # Start interactive mode
+   simhacli "your prompt"       # Run a single command
+   simhacli --cwd /path/to/dir  # Set working directory
+   ```
+
+### Option 3: Development Setup
+
+1. **Clone and create virtual environment**
+
+   ```bash
+   git clone https://github.com/naidu199/SimhaCLI.git
+   cd SimhaCLI
    python -m venv venv
 
    # Windows
@@ -102,29 +140,45 @@ _Built by Narasimha Naidu Korrapti_
    source venv/bin/activate
    ```
 
-3. **Install dependencies**
+2. **Install in editable mode**
 
    ```bash
-   pip install -r requirements.txt
+   pip install -e .
    ```
 
-4. **Set up environment variables**
+3. **Run SimhaCLI**
 
    ```bash
-   # Windows
-   set API_KEY=your_api_key_here
-   set API_BASE_URL=https://api.openai.com/v1
-
-   # Linux/Mac
-   export API_KEY=your_api_key_here
-   export API_BASE_URL=https://api.openai.com/v1
+   simhacli
    ```
 
-5. **Configure (Optional)**
-   ```bash
-   # Create system config
-   mkdir -p ~/.simhacli
-   # Edit ~/.simhacli/config.toml
-   ```
+### Configuration
+
+Set up your API credentials using one of these methods:
+
+**Method 1: Environment Variables**
+
+```bash
+# Windows (PowerShell)
+$env:API_KEY = "your_api_key_here"
+$env:API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+# Windows (CMD)
+set API_KEY=your_api_key_here
+set API_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+
+# Linux/Mac
+export API_KEY=your_api_key_here
+export API_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+```
+
+**Method 2: Config File**
+
+```bash
+# Create config directory
+mkdir -p ~/.simhacli
+
+# Create/edit config.toml
+```
 
 ---

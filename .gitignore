@@ -131,6 +131,7 @@ dmypy.json
 
 # SimhaCLI
 .simhacli/
+PUBLISHING.md
 
 # OS
 .DS_Store
