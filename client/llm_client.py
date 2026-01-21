@@ -23,8 +23,8 @@ class LLMClient:
     def get_client(self) -> AsyncOpenAI:
         if self._client is None:
             self._client = AsyncOpenAI(
-                api_key=self._config.api_key,
-                base_url=self._config.api_base_url,
+                api_key=self._config.get_api_key(),
+                base_url=self._config.get_api_base_url(),
             )
         return self._client
 

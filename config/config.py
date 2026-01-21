@@ -7,7 +7,7 @@ from tkinter import ON
 from typing import Any
 from click import File, command
 from cyclopts import App
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 
 class ModelConfig(BaseModel):
@@ -90,8 +90,10 @@ class HookConfig(BaseModel):
 
 
 class Config(BaseModel):
+    model_config = {"populate_by_name": True}
+
     model: ModelConfig = Field(default_factory=ModelConfig)
-    cwd: Path = Field(default_factory=Path.cwd())
+    cwd: Path = Field(default_factory=Path.cwd)
     shell_environment: ShellEnvironmentPolicy = Field(
         default_factory=ShellEnvironmentPolicy
     )
@@ -110,13 +112,17 @@ class Config(BaseModel):
 
     debug: bool = False
 
-    @property
-    def api_key(self) -> str | None:
-        return os.environ.get("API_KEY")
+    # API credentials - stored in config.toml or environment variables
+    api_key: str | None = Field(default=None)
+    api_base_url: str | None = Field(default=None)
 
-    @property
-    def api_base_url(self) -> str | None:
-        return os.environ.get("API_BASE_URL")
+    def get_api_key(self) -> str | None:
+        """Get API key from config or environment variable."""
+        return self.api_key or os.environ.get("API_KEY")
+
+    def get_api_base_url(self) -> str | None:
+        """Get API base URL from config or environment variable."""
+        return self.api_base_url or os.environ.get("API_BASE_URL")
 
     @property
     def model_name(self) -> str:
@@ -136,8 +142,10 @@ class Config(BaseModel):
 
     def validate(self) -> None:
         errors: list[str] = []
-        if self.api_key is None:
-            errors.append("API_KEY environment variable is not set.")
+        if self.get_api_key() is None:
+            errors.append(
+                "API_KEY is not configured. Set it in config.toml or as an environment variable."
+            )
         if not self.cwd.exists() or not self.cwd.is_dir():
             errors.append(f"CWD path does not exist or is not a directory: {self.cwd}")
 

@@ -7,7 +7,13 @@ import asyncio
 from agent.session import Session
 from agent.state import SessionSnapshot, StateManager
 from config.config import ApprovalPolicy, Config
-from config.loader import load_config
+from config.loader import (
+    load_config,
+    get_config_file_path,
+    _save_config_toml,
+    _parse_toml,
+    _mask_api_key,
+)
 from ui.tui import TUI, get_console
 
 console = get_console()  # Initialize console for TUI output
@@ -38,7 +44,7 @@ class SimhaCLI:
                 "Current Usage::",
                 f"Model: {self.config.model.name}",
                 f"CWD: {self.config.cwd}",
-                "Commands: /help for help, /exit to exit, /config, /approval, /model",
+                "Commands: /help, /exit, /config, /approval, /model, /credentials",
                 "Type your commands below to get started!",
                 "Type /exit or /quit to exit.",
             ],
@@ -152,6 +158,118 @@ class SimhaCLI:
                 )
 
         return response_content if response_content else "completed"
+
+    async def _handle_credentials_command(self, cmd_args: str) -> None:
+        """Handle /credentials command to view or update API credentials."""
+        from rich.prompt import Prompt, Confirm
+        from rich.panel import Panel
+
+        config_path = get_config_file_path()
+
+        if cmd_args == "":
+            # Show current credentials
+            api_key = self.config.get_api_key()
+            api_base_url = self.config.get_api_base_url()
+
+            console.print()
+            console.print(
+                Panel(
+                    f"[bold]API Base URL:[/bold] {api_base_url or '[dim]Not set[/dim]'}\n"
+                    f"[bold]API Key:[/bold] {_mask_api_key(api_key) if api_key else '[dim]Not set[/dim]'}\n\n"
+                    f"[dim]Config file: {config_path}[/dim]",
+                    title="[bold yellow]🔑 Current Credentials[/bold yellow]",
+                    border_style="yellow",
+                )
+            )
+            console.print()
+            console.print("[dim]Use '/credentials update' to change credentials[/dim]")
+            console.print("[dim]Use '/credentials key' to update only API key[/dim]")
+            console.print("[dim]Use '/credentials url' to update only base URL[/dim]")
+
+        elif cmd_args == "update":
+            # Update both credentials
+            await self._update_credentials(update_url=True, update_key=True)
+
+        elif cmd_args == "key":
+            # Update only API key
+            await self._update_credentials(update_url=False, update_key=True)
+
+        elif cmd_args == "url":
+            # Update only base URL
+            await self._update_credentials(update_url=True, update_key=False)
+
+        else:
+            console.print(f"[error]Unknown subcommand: {cmd_args}[/error]")
+            console.print("[dim]Usage: /credentials [update|key|url][/dim]")
+
+    async def _update_credentials(
+        self, update_url: bool = False, update_key: bool = False
+    ) -> None:
+        """Update API credentials interactively."""
+        from rich.prompt import Prompt, Confirm
+
+        config_path = get_config_file_path()
+
+        # Load existing config
+        existing_config = {}
+        if config_path.is_file():
+            try:
+                existing_config = _parse_toml(config_path)
+            except Exception:
+                pass
+
+        api_base_url = self.config.get_api_base_url()
+        api_key = self.config.get_api_key()
+
+        if update_url:
+            console.print()
+            console.print(f"[dim]Current Base URL: {api_base_url or 'Not set'}[/dim]")
+            use_openrouter = Confirm.ask(
+                "[bold yellow]Use OpenRouter (https://openrouter.ai/api/v1)?[/bold yellow]",
+                default=True,
+            )
+
+            if use_openrouter:
+                api_base_url = "https://openrouter.ai/api/v1"
+            else:
+                api_base_url = Prompt.ask(
+                    "[bold yellow]Enter new API Base URL[/bold yellow]",
+                    default=api_base_url or "",
+                )
+
+            existing_config["api_base_url"] = api_base_url
+            self.config.api_base_url = api_base_url
+            console.print(f"[green]✓ Base URL updated: {api_base_url}[/green]")
+
+        if update_key:
+            console.print()
+            console.print(
+                f"[dim]Current API Key: {_mask_api_key(api_key) if api_key else 'Not set'}[/dim]"
+            )
+            new_key = Prompt.ask(
+                "[bold yellow]Enter new API Key[/bold yellow]", password=True
+            )
+
+            if new_key.strip():
+                api_key = new_key.strip()
+                existing_config["api_key"] = api_key
+                self.config.api_key = api_key
+                console.print(
+                    f"[green]✓ API Key updated: {_mask_api_key(api_key)}[/green]"
+                )
+            else:
+                console.print("[dim]API Key unchanged[/dim]")
+
+        # Save to config file
+        _save_config_toml(config_path, existing_config)
+        console.print(f"\n[green]✓ Credentials saved to: {config_path}[/green]")
+
+        # Recreate the LLM client with new credentials
+        if self.agent and self.agent.session:
+            await self.agent.session.client.close_client()
+            console.print(
+                "[dim]LLM client will use new credentials on next request[/dim]"
+            )
 
     async def _handle_command(self, command: str) -> bool:
         cmd = command.lower().strip()
@@ -334,6 +452,8 @@ class SimhaCLI:
                     console.print(
                         f"[success]Resumed session: {session.session_id}, checkpoint: {checkpoint_id}[/success]"
                     )
+        elif cmd_name == "/credentials" or cmd_name == "/creds":
+            await self._handle_credentials_command(cmd_args)
         else:
             console.print(f"[error]Unknown command: {cmd_name}[/error]")
 
