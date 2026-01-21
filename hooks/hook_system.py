@@ -1,7 +1,6 @@
 import asyncio
 import json
 import os
-from signal import signal
 import sys
 import tempfile
 from typing import Any

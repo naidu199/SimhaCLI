@@ -1,13 +1,9 @@
-from math import e
-from os import curdir
 from pathlib import Path
 import os
 import re
-from tkinter import CURRENT
 import tomllib
 from typing import Any
 
-from openai import project
 from config.config import Config
 from platformdirs import user_config_dir, user_data_dir
 from utils.errors import ConfigError

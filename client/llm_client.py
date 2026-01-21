@@ -1,7 +1,6 @@
 import asyncio
-from json import tool
 from typing import Any, AsyncGenerator
-from openai import APIConnectionError, APIError, APIError, AsyncOpenAI, RateLimitError
+from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
 
 from config.config import Config
 from .response import (

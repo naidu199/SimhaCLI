@@ -1,9 +1,6 @@
 from datetime import datetime
-from itertools import count
-import token
 from typing import Any
 
-from regex import P
 from client.response import TokenUsage
 from config.config import Config
 from prompts.system import get_system_prompt

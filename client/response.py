@@ -4,8 +4,6 @@ from enum import Enum
 import json
 from typing import Any
 
-from regex import T
-
 from tools.base import Tool
 
 

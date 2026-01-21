@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simhacli"
-version = "1.0.0"
+version = "1.0.2"
 description = "SimhaCLI 🦁 — AI Coding Agent that runs inside your terminal"
 readme = "README.md"
 license = { text = "MIT" }
@@ -31,9 +31,13 @@ dependencies = [
 	"anyio>=4.0.0",
 	"pydantic>=2.0.0",
 	"toml>=0.10.0",
+	"tomli-w>=1.0.0",
 	"ddgs>=6.0.0",
 	"fastmcp>=2.0.0",
 	"diskcache>=5.0.0",
+	"openai>=1.0.0",
+	"tiktoken>=0.5.0",
+	"platformdirs>=3.0.0",
 ]
 
 [project.urls]
