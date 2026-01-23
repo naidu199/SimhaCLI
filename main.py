@@ -296,6 +296,40 @@ class SimhaCLI:
             if cmd_args:
                 self.config.model_name = cmd_args
                 console.print(f"[success]Model changed to: {cmd_args} [/success]")
+
+                # Refresh system prompt with new model info
+                if self.agent and self.agent.session:
+                    tools = self.agent.session.tool_registry.get_tools()
+                    self.agent.session.context_manager.refresh_system_prompt(
+                        tools=tools
+                    )
+                    console.print(
+                        "[dim]System prompt updated with new model info[/dim]"
+                    )
+
+                # Save to project config file
+                project_config_path = self.config.cwd / ".simhacli" / "config.toml"
+                if project_config_path.parent.exists():
+                    try:
+                        # Load existing project config
+                        existing_config = {}
+                        if project_config_path.is_file():
+                            existing_config = _parse_toml(project_config_path)
+
+                        # Update model name
+                        if "model" not in existing_config:
+                            existing_config["model"] = {}
+                        existing_config["model"]["name"] = cmd_args
+
+                        # Save back to file
+                        _save_config_toml(project_config_path, existing_config)
+                        console.print(
+                            f"[dim]Model saved to project config: {project_config_path}[/dim]"
+                        )
+                    except Exception as e:
+                        console.print(
+                            f"[warning]Could not save to project config: {e}[/warning]"
+                        )
             else:
                 console.print(f"Current model: {self.config.model_name}")
         elif cmd_name == "/approval":

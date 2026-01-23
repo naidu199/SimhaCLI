@@ -1,19 +1,25 @@
 hooks_enabled = true
 
-
 [model]
-name = "mistralai/devstral-2512:free" # nvidia/nemotron-3-nano-30b-a3b:free #qwen/qwen3-coder:free
+name = "mistralai/devstral-2512:free"
 
 [[hooks]]
-name="test_before_tool"
-trigger="before_tool"
-command="python3 ./scripts/test_tool.py"
+name = "test_before_tool"
+trigger = "before_tool"
+command = "python3 ./scripts/test_tool.py"
+enabled = true
 
 [[hooks]]
-name="test_before_agent"
-trigger="before_agent"
-command="python3 ./scripts/test_tool.py"
+name = "test_before_agent"
+trigger = "before_agent"
+command = "python3 ./scripts/test_tool.py"
+enabled = true
 
 [mcp_servers.filesystem]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "D:/SimhaCLI"]
+args = [
+    "-y",
+    "@modelcontextprotocol/server-filesystem",
+    "D:/SimhaCLI",
+]
+enabled = true

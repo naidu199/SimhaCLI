@@ -65,6 +65,124 @@ def _parse_toml(path: Path) -> dict:
         )
 
 
+def _initialize_project_dir(cwd: Path) -> None:
+    """Initialize .simhacli directory structure if it doesn't exist."""
+    curdir = cwd.resolve()
+    agent_dir = curdir / ".simhacli"
+
+    # Create .simhacli directory if it doesn't exist
+    if not agent_dir.exists():
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Initialized .simhacli directory at {agent_dir}")
+
+        # Create a comprehensive config template
+        config_file = agent_dir / CONFIG_FILE_NAME
+        if not config_file.exists():
+            # Create detailed config file with examples
+            config_content = """# ═══════════════════════════════════════════════════════════════════════
+# SimhaCLI Project Configuration
+# ═══════════════════════════════════════════════════════════════════════
+# This file allows you to customize SimhaCLI settings for THIS PROJECT ONLY
+# Settings here override the global configuration (~/.simhacli/config.toml)
+# Uncomment lines to activate them by removing the '#' at the beginning
+# ═══════════════════════════════════════════════════════════════════════
+
+# ───────────────────────────────────────────────────────────────────────
+# MODEL CONFIGURATION
+# ───────────────────────────────────────────────────────────────────────
+# Override which AI model to use for this project
+[model]
+name = "mistralai/devstral-2512:free"
+# temperature = 1.0              # Creativity level (0.0-2.0, higher = more creative)
+# context_window = 256000        # Maximum context size
+
+# Popular free models on OpenRouter:
+# - "mistralai/mistral-7b-instruct:free"
+# - "google/gemma-3-27b-it:free"
+# - "meta-llama/llama-3.2-3b-instruct:free"
+# - "microsoft/phi-3-mini-128k-instruct:free"
+
+# ───────────────────────────────────────────────────────────────────────
+# PROJECT INSTRUCTIONS
+# ───────────────────────────────────────────────────────────────────────
+# Add custom instructions specific to this project
+# user_instructions = "Always use 4 spaces for indentation in Python files"
+# developer_instructions = "Follow PEP 8 style guide strictly"
+
+# ───────────────────────────────────────────────────────────────────────
+# APPROVAL POLICY
+# ───────────────────────────────────────────────────────────────────────
+# Control when to ask for permission before executing tools
+# approval = "on_request"        # Ask for permission when needed (default)
+# approval = "always"            # Ask before every tool execution
+# approval = "auto_approve"      # Auto-approve safe operations
+# approval = "yolo"              # Never ask (use with caution!)
+
+# ───────────────────────────────────────────────────────────────────────
+# BEHAVIOR SETTINGS
+# ───────────────────────────────────────────────────────────────────────
+# max_turns = 72                 # Maximum conversation turns per session
+# max_tool_output_tokens = 50000 # Maximum tokens from tool outputs
+# debug = false                  # Enable debug logging
+
+# ───────────────────────────────────────────────────────────────────────
+# HOOKS SYSTEM
+# ───────────────────────────────────────────────────────────────────────
+# Execute custom scripts/commands at specific points during execution
+# hooks_enabled = true
+
+# Example: Run tests before agent processes a request
+# [[hooks]]
+# name = "pre_check"
+# trigger = "before_agent"       # Options: before_tool, after_tool, before_agent, after_agent, on_error
+# command = "pytest tests/"
+# enabled = true
+
+# Example: Format code after file edits
+# [[hooks]]
+# name = "auto_format"
+# trigger = "after_tool"
+# command = "black ."
+# enabled = true
+
+# ───────────────────────────────────────────────────────────────────────
+# SHELL ENVIRONMENT CUSTOMIZATION
+# ───────────────────────────────────────────────────────────────────────
+# [shell_environment]
+# ignore_default_excludes = false
+# exclude_patterns = ["*KEY*", "*TOKEN*", "*SECRET*"]  # Patterns to exclude from shell env
+# set_vars = { "CUSTOM_VAR" = "value" }                # Set custom environment variables
+
+# ───────────────────────────────────────────────────────────────────────
+# MCP SERVERS (Model Context Protocol)
+# ───────────────────────────────────────────────────────────────────────
+# Connect to external tools and services via MCP protocol
+
+# Example: Filesystem access server
+# [mcp_servers.filesystem]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/project"]
+# enabled = true
+
+# Example: HTTP-based MCP server
+# [mcp_servers.custom_service]
+# url = "http://localhost:3000/mcp"
+# enabled = true
+
+# ───────────────────────────────────────────────────────────────────────
+# TOOL RESTRICTIONS
+# ───────────────────────────────────────────────────────────────────────
+# Limit which tools the agent can use in this project
+# allowed_tools = ["read_file", "write_file", "edit_file", "shell", "grep"]
+
+# ═══════════════════════════════════════════════════════════════════════
+# For more information, visit: https://github.com/narasimhanaidukorrapati/simhacli
+# ═══════════════════════════════════════════════════════════════════════
+"""
+            config_file.write_text(config_content, encoding="utf-8")
+            logger.info(f"Created project config template at {config_file}")
+
+
 def _get_project_config_file(cwd: Path) -> Path | None:
     curdir = cwd.resolve()
     agent_dir = curdir / ".simhacli"
@@ -168,6 +286,25 @@ def _prompt_for_api_credentials(
         if use_default:
             api_base_url = DEFAULT_API_BASE_URL
             console.print(f"[green]✓ Using OpenRouter: {api_base_url}[/green]")
+            console.print()
+
+            # Show instructions for getting OpenRouter API key
+            console.print(
+                Panel(
+                    "[bold cyan]How to Get Your OpenRouter API Key:[/bold cyan]\n\n"
+                    "[bold]1.[/bold] Visit [link=https://openrouter.ai]https://openrouter.ai[/link]\n"
+                    "[bold]2.[/bold] Click [bold green]'Sign In'[/bold green] or [bold green]'Get Started'[/bold green] in the top right\n"
+                    "[bold]3.[/bold] Sign in with your Google, GitHub, or Discord account\n"
+                    "[bold]4.[/bold] Go to [bold]'Keys'[/bold] section in your dashboard\n"
+                    "[bold]5.[/bold] Click [bold green]'Create Key'[/bold green] to generate a new API key\n"
+                    "[bold]6.[/bold] Copy the key and paste it below\n\n"
+                    "[dim]💡 Tip: OpenRouter provides Free models to get started! (OR)[/dim]"
+                    "[dim] provides $1 free credit to get started![/dim]",
+                    title="[bold yellow]🔑 API Key Setup[/bold yellow]",
+                    border_style="cyan",
+                )
+            )
+            console.print()
         else:
             api_base_url = Prompt.ask(
                 "[bold yellow]Enter your custom API Base URL[/bold yellow]"
@@ -208,6 +345,9 @@ def load_config(cwd: Path | None = None) -> Config:
     # C:\Users\Naidu\AppData\Local\simhacli\config.toml ( it is platform dependent, from platformdirs when users setup simhacli first time)
 
     # \SimhaCLI\.simhacli\config.toml (project config file in the current working directory if exists)
+
+    # Initialize .simhacli directory if it doesn't exist
+    _initialize_project_dir(cwd)
 
     system_path = get_config_file_path()
     config_dict: dict[str, Any] = {}

@@ -108,8 +108,59 @@ class LLMClient:
                     )
                     return
             except APIError as e:
-                if attempt < self._max_rate_limit_retries:
+                # Check for specific error types and provide helpful messages
+                error_str = str(e)
 
+                # 404 data policy error (OpenRouter free models)
+                if "404" in error_str and (
+                    "data policy" in error_str.lower()
+                    or "endpoints found" in error_str.lower()
+                ):
+                    yield StreamEvent(
+                        type=StreamEventType.ERROR,
+                        error=(
+                            f"API error: {str(e)}\n\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            "🔓 To Fix This Error:\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            "1. Go to: https://openrouter.ai/settings/privacy\n"
+                            "2. Enable: 'Enable free endpoints that may publish prompts'\n"
+                            "3. Save your settings and try again\n\n"
+                            "ℹ️  Note: Free models on OpenRouter require you to allow\n"
+                            "   your prompts/completions to be published to public datasets.\n"
+                            "If still facing issues after enabling this setting, terminate the agent and try again.\n"
+                        ),
+                    )
+                    return
+
+                # Upstream/model endpoint errors (temporary issues)
+                if (
+                    "upstream" in error_str.lower()
+                    or "model endpoint" in error_str.lower()
+                ):
+                    if attempt < self._max_rate_limit_retries:
+                        await asyncio.sleep(2**attempt)
+                        continue
+                    else:
+                        yield StreamEvent(
+                            type=StreamEventType.ERROR,
+                            error=(
+                                f"API error after {self._max_rate_limit_retries} retries: {str(e)}\n\n"
+                                "💡 This model appears to be temporarily unavailable.\n"
+                                "   Try one of these solutions:\n"
+                                "   • Wait a moment and try again\n"
+                                "   • Switch to a different model using: /model <model-name>\n"
+                                "   • Recommended alternatives:\n"
+                                "     - mistralai/mistral-7b-instruct:free\n"
+                                "     - meta-llama/llama-3.2-3b-instruct:free\n"
+                                "     - microsoft/phi-3-mini-128k-instruct:free"
+                                "If still facing issues after enabling this setting, terminate the agent and try again.\n"
+                            ),
+                        )
+                        return
+
+                # Generic API errors with retry logic
+                if attempt < self._max_rate_limit_retries:
                     await asyncio.sleep(2**attempt)  # Exponential backoff
                     continue
                 else:

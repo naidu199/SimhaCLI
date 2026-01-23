@@ -163,6 +163,18 @@ I'll continue with the REMAINING tasks only, starting from where we left off."""
         )
         self._messages.append(ack_item)
 
+    def refresh_system_prompt(
+        self, tools: list[Tool] | None = None, user_memory: str | None = None
+    ) -> None:
+        """Refresh the system prompt with updated config (e.g., after model change)."""
+        self._system_prompt = get_system_prompt(
+            config=self._config,
+            user_memory=user_memory,
+            tools=tools,
+        )
+        # Update model name tracking
+        self._model_name = self._config.model.name
+
         continue_content = (
             "Continue with the REMAINING work only. Do NOT repeat any completed actions. "
             "Proceed with the next step as described in the context above."

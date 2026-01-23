@@ -163,6 +163,8 @@ class TUI:
                 self._live.update(Markdown(self._buffered_content + " ▌"))
 
     def display_error(self, error_message: str) -> None:
+        # Stop loading indicator if it's running
+        self.stop_loading()
         self.console.print(f"[error]Error: {error_message}[/error]")
 
     def agent_start(self, message: str) -> None:
