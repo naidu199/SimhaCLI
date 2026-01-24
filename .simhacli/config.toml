@@ -1,7 +1,7 @@
 hooks_enabled = true
 
 [model]
-name = "mistralai/devstral-2512:free"
+name = "openai/gpt-oss-120b:free"
 
 [[hooks]]
 name = "test_before_tool"

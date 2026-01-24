@@ -158,6 +158,25 @@ class Agent:
                     self.session.hook_system,
                 )
 
+                # Record tool failure for loop detection
+                if not result.success:
+                    self.session.loop_detector.record_tool_failure(
+                        tool_call.name or "", parsed_args
+                    )
+
+                    # Check for consecutive failures immediately
+                    loop_detector_value = self.session.loop_detector.check_for_loop()
+                    if loop_detector_value:
+                        yield AgentEvent.tool_call_complete(
+                            tool_call.call_id,
+                            tool_call.name,
+                            result,
+                        )
+                        yield AgentEvent.agent_error(
+                            f"Stopping execution: {loop_detector_value}"
+                        )
+                        return
+
                 yield AgentEvent.tool_call_complete(
                     tool_call.call_id,
                     tool_call.name,
