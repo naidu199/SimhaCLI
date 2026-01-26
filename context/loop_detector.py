@@ -9,7 +9,9 @@ class LoopDetector:
         self.max_consecutive_failures = 3  # Stop after 3 consecutive failed tool calls
         self._history: deque[str] = deque(maxlen=20)
         self._consecutive_failures = 0
-        self._last_failed_tool_signature: str | None = None  # Track tool + params signature
+        self._last_failed_tool_signature: str | None = (
+            None  # Track tool + params signature
+        )
 
     def record_action(self, action_type: str, **details: Any):
         output = [action_type]
@@ -31,10 +33,7 @@ class LoopDetector:
         signature = "|".join(output)
         self._history.append(signature)
 
-    def record_tool_failure(self, tool_name: str) -> None:
-        """Record a tool call failure. Increments counter if same tool fails consecutively."""
-        if self._last_tool_call == tool_name:
-            self._consecutive_failures += 1, args: dict[str, Any]) -> None:
+    def record_tool_failure(self, tool_name: str, args: dict[str, Any]) -> None:
         """Record a tool call failure. Only counts as consecutive if same tool with same/similar params fails."""
         # Create a signature that includes tool name and parameters
         signature_parts = [tool_name]
@@ -54,8 +53,15 @@ class LoopDetector:
     def check_for_loop(self) -> str | None:
         # Check for consecutive failures first
         if self._consecutive_failures >= self.max_consecutive_failures:
-            tool_name = self._last_failed_tool_signature.split("|")[0] if self._last_failed_tool_signature else "unknown"
-            return f"Tool '{tool_name}' failed {self._consecutive_failures} times consecutively with the same parameters
+            tool_name = (
+                self._last_failed_tool_signature.split("|")[0]
+                if self._last_failed_tool_signature
+                else "unknown"
+            )
+            return f"Tool '{tool_name}' failed {self._consecutive_failures} times consecutively with the same parameters. Stopping to prevent infinite loop."
+
+        if len(self._history) < 2:
+            return None
 
         if len(self._history) >= self.max_exact_repeats:
             recent = list(self._history)[-self.max_exact_repeats :]
@@ -68,7 +74,7 @@ class LoopDetector:
             # Check for cycles with patterns of increasing length in the recent history
             for cycle_len in range(
                 2, min(self.max_cycle_length + 1, len(history) // 2 + 1)
-            ):failed_tool_signature
+            ):
                 recent = history[-cycle_len * 2 :]
                 if recent[:cycle_len] == recent[cycle_len:]:
                     return f"Detected repeating cycle of length {cycle_len}"
@@ -78,4 +84,4 @@ class LoopDetector:
     def clear(self) -> None:
         self._history.clear()
         self._consecutive_failures = 0
-        self._last_tool_call = None
+        self._last_failed_tool_signature = None
