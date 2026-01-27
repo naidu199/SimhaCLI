@@ -45,7 +45,8 @@ class SimhaCLI:
                 f"Model: {self.config.model.name}",
                 f"CWD: {self.config.cwd}",
                 "Commands: /help, /exit, /config, /approval, /model, /credentials",
-                "Type your commands below to get started!",
+                "",
+                "Input: Enter to send | paste for multi-line | Esc+Enter to force submit",
                 "Type /exit or /quit to exit.",
             ],
         )
@@ -57,7 +58,12 @@ class SimhaCLI:
                 self.agent = agent
                 while True:
                     try:
-                        user_input = console.input("\n[user]>[/user] ").strip()
+                        # Use multi-line input with better text editing support
+                        # Enter to send, Ctrl+J for new line
+                        user_input = await self.tui.get_multiline_input("> ")
+                        if user_input is None:
+                            console.print("\n[dim]Use /exit or /quit to quit[/dim]")
+                            continue
                         if not user_input:
                             continue
 

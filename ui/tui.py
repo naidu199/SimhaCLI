@@ -14,6 +14,12 @@ from rich.markdown import Markdown
 from rich.status import Status
 from rich.live import Live
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
+from prompt_toolkit.styles import Style as PTStyle
+from prompt_toolkit.formatted_text import HTML
+
 from config.config import Config
 from tools.base import ToolConfirmation
 from utils.paths import display_path_rel_to_cwd
@@ -98,6 +104,93 @@ class TUI:
         self._status: Status | None = None
         self._live: Live | None = None
         self._last_render_len = 0
+
+        # Setup multi-line input with prompt_toolkit
+        self._prompt_session = self._create_prompt_session()
+
+    def _create_prompt_session(self) -> PromptSession:
+        """Create a prompt session with custom key bindings for multi-line input."""
+        # Key bindings:
+        # - Enter on empty line or Alt+Enter submits
+        # - Enter with text adds newline (for multi-line editing)
+        # - Escape then Enter also submits
+        bindings = KeyBindings()
+
+        @bindings.add(Keys.Enter)
+        def _(event):
+            """
+            Enter behavior:
+            - If buffer is empty or cursor is at end and line is empty: submit
+            - Otherwise: insert newline for multi-line input
+            """
+            buffer = event.app.current_buffer
+            text = buffer.text
+
+            # Get current line
+            document = buffer.document
+            current_line = document.current_line
+
+            # Submit if:
+            # 1. Buffer is empty (just pressing enter without text)
+            # 2. Current line is empty (double enter to submit)
+            # 3. Text doesn't contain newlines (single line - submit immediately)
+            if not text.strip() or current_line.strip() == "" or "\n" not in text:
+                buffer.validate_and_handle()
+            else:
+                # Insert newline for multi-line editing
+                buffer.insert_text("\n")
+
+        @bindings.add(
+            Keys.Escape, Keys.Enter
+        )  # Escape then Enter (Alt+Enter equivalent)
+        def _(event):
+            """Force submit with Escape+Enter."""
+            event.app.current_buffer.validate_and_handle()
+
+        @bindings.add("c-j")  # Ctrl+J - common alternative for newline
+        def _(event):
+            """Insert newline with Ctrl+J."""
+            event.app.current_buffer.insert_text("\n")
+
+        # Custom style for the prompt
+        style = PTStyle.from_dict(
+            {
+                "prompt": "#FFD700 bold",  # Gold color for prompt
+                "input": "#FFFFFF",  # White for input text
+            }
+        )
+
+        return PromptSession(
+            key_bindings=bindings,
+            style=style,
+            multiline=True,
+            prompt_continuation=lambda width, line_number, is_soft_wrap: "... ",
+        )
+
+    async def get_multiline_input(self, prompt_text: str = "> ") -> str | None:
+        """
+        Get multi-line input from user.
+
+        - Enter: Submit (single line) or add newline (multi-line mode)
+        - Enter on empty line: Submit the message
+        - Escape+Enter: Force submit
+
+        - Arrow keys: Navigate within text
+        - Standard text editing (Home, End, Delete, Backspace, etc.)
+
+        Returns:
+            The user input string, or None if cancelled (Ctrl+C/Ctrl+D)
+        """
+        try:
+            self.console.print()  # Add spacing before prompt
+            result = await self._prompt_session.prompt_async(
+                HTML(f"<prompt>{prompt_text}</prompt>"),
+            )
+            return result.strip() if result else None
+        except KeyboardInterrupt:
+            return None
+        except EOFError:
+            return None
 
     def print_welcome(self, title: str, lines: list[str]) -> None:
         body = "\n".join(lines)
@@ -840,6 +933,15 @@ class TUI:
 - `/restore <checkpoint_id>` - Restore a checkpoint
 - `/sessions` - List saved sessions
 - `/resume <session_id>` - Resume a saved session
+
+## Input Controls
+
+- **Enter** - Send message (single line) or add new line (in multi-line mode)
+- **Enter on empty line** - Submit multi-line message
+- **Escape then Enter** - Force submit message
+- **Arrow keys** - Navigate within your text
+- **Home/End** - Jump to start/end of line
+- Multi-line paste is supported
 
 ## Tips
 

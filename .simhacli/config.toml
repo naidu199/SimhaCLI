@@ -1,7 +1,7 @@
 hooks_enabled = true
 
 [model]
-name = "mistralai/devstral-2512:free"
+name = "qwen3-coder:480b-cloud"
 
 [[hooks]]
 name = "test_before_tool"
