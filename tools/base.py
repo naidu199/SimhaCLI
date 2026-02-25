@@ -170,12 +170,20 @@ class Tool(abc.ABC):
 
             json_schema = model_json_schema(schema, mode="serialization")
 
+            # Build a clean parameters dict – strip Pydantic artefacts that
+            # confuse smaller models ($defs, definitions, additionalProperties).
+            properties = json_schema.get("properties", {})
+            # Inline any $ref references and remove $defs to keep the schema flat
+            defs = json_schema.get("$defs", json_schema.get("definitions", {}))
+            if defs:
+                properties = self._resolve_refs(properties, defs)
+
             return {
                 "name": self.name,
                 "description": self.description,
                 "parameters": {
                     "type": "object",
-                    "properties": json_schema.get("properties", {}),
+                    "properties": properties,
                     "required": json_schema.get("required", []),
                 },
             }
@@ -194,3 +202,34 @@ class Tool(abc.ABC):
             return result
 
         raise ValueError(f"Invalid schema type for tool {self.name}: {type(schema)}")
+
+    @staticmethod
+    def _resolve_refs(
+        properties: dict[str, Any], defs: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Recursively resolve $ref pointers to inline definitions.
+
+        This keeps tool schemas flat and understandable by small models that
+        do not handle JSON-Schema $ref properly.
+        """
+        import copy
+
+        resolved: dict[str, Any] = {}
+        for key, value in properties.items():
+            if isinstance(value, dict):
+                if "$ref" in value:
+                    ref_name = value["$ref"].split("/")[-1]
+                    if ref_name in defs:
+                        resolved[key] = copy.deepcopy(defs[ref_name])
+                    else:
+                        resolved[key] = value
+                else:
+                    resolved[key] = copy.deepcopy(value)
+                    # Recurse into nested properties
+                    if "properties" in resolved[key]:
+                        resolved[key]["properties"] = Tool._resolve_refs(
+                            resolved[key]["properties"], defs
+                        )
+            else:
+                resolved[key] = value
+        return resolved

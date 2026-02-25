@@ -90,4 +90,41 @@ def parse_tool_call_arguments(arguments_str: str) -> dict[str, Any]:
     try:
         return json.loads(arguments_str)
     except json.JSONDecodeError:
-        return {"raw_arguments": arguments_str}
+        pass
+
+    # Small models often produce malformed JSON - attempt recovery
+    cleaned = arguments_str.strip()
+
+    # Strip markdown code fences that small models sometimes wrap around JSON
+    if cleaned.startswith("```"):
+        lines = cleaned.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        cleaned = "\n".join(lines).strip()
+
+    # Try to extract JSON object from surrounding text
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(cleaned[start : end + 1])
+        except json.JSONDecodeError:
+            pass
+
+    # Try fixing common issues: trailing commas, single quotes
+    try:
+        # Replace single quotes with double quotes (common small model mistake)
+        fixed = cleaned.replace("'", '"')
+        return json.loads(fixed)
+    except json.JSONDecodeError:
+        pass
+
+    # Try removing trailing commas before } or ]
+    import re
+
+    try:
+        fixed = re.sub(r",\s*([}\]])", r"\1", cleaned)
+        return json.loads(fixed)
+    except json.JSONDecodeError:
+        pass
+
+    return {"raw_arguments": arguments_str}

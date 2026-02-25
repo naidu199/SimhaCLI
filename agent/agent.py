@@ -13,7 +13,7 @@ from client.response import (
 )
 from config.config import Config
 from prompts.system import create_loop_breaker_prompt
-from tools.base import ToolConfirmation
+from tools.base import ToolConfirmation, ToolResult
 
 
 class Agent:
@@ -93,8 +93,6 @@ class Agent:
                     return  # Stop processing on error
                 elif event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
-                    # Only yield text_complete once at the end with full response
-                    yield AgentEvent.text_complete(content=response_text)
 
             # Convert tool_calls to the format expected by the API
             tool_calls_dict = (
@@ -138,6 +136,33 @@ class Agent:
             for tool_call in tool_calls:
                 parsed_args = parse_tool_call_arguments(tool_call.arguments or "")
 
+                # If argument parsing returned raw_arguments, provide a clear
+                # error back to the model so it can retry with valid JSON.
+                if "raw_arguments" in parsed_args:
+                    raw = parsed_args["raw_arguments"]
+                    error_result = ToolResult.error_result(
+                        f"Invalid JSON in tool call arguments. Could not parse: {raw[:200]}. "
+                        "Please provide valid JSON arguments."
+                    )
+                    yield AgentEvent.tool_call_start(
+                        call_id=tool_call.call_id,
+                        name=tool_call.name,
+                        arguments=parsed_args,
+                    )
+                    yield AgentEvent.tool_call_complete(
+                        tool_call.call_id,
+                        tool_call.name,
+                        error_result,
+                    )
+                    tool_call_results.append(
+                        ToolResultMessage(
+                            tool_call_id=tool_call.call_id,
+                            content=error_result.to_model_output(),
+                            is_error=True,
+                        )
+                    )
+                    continue
+
                 yield AgentEvent.tool_call_start(
                     call_id=tool_call.call_id,
                     name=tool_call.name,
@@ -147,7 +172,7 @@ class Agent:
                 self.session.loop_detector.record_action(
                     "tool_call",
                     tool_name=tool_call.name,
-                    args=parse_tool_call_arguments(tool_call.arguments or ""),
+                    args=parsed_args,
                 )
 
                 result = await self.session.tool_registry.invoke(

@@ -33,24 +33,33 @@ class LLMClient:
         self._client = None
 
     def _build_tools(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        built = []
+        for tool in tools:
+            params = tool.get(
+                "parameters",
+                {"type": "object", "properties": {}},
+            )
 
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool["name"],
-                    "description": tool.get("description", ""),
-                    "parameters": tool.get(
-                        "parameters",
-                        {
-                            "type": "object",
-                            "properties": {},
-                        },
-                    ),
-                },
-            }
-            for tool in tools
-        ]
+            # Remove $defs / definitions that Pydantic may inject — small models
+            # get confused by JSON-Schema references.
+            params.pop("$defs", None)
+            params.pop("definitions", None)
+
+            # Ensure "type" is declared (some models require it)
+            params.setdefault("type", "object")
+            params.setdefault("properties", {})
+
+            built.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool["name"],
+                        "description": tool.get("description", ""),
+                        "parameters": params,
+                    },
+                }
+            )
+        return built
 
     async def chat_completion(
         self,
@@ -82,8 +91,8 @@ class LLMClient:
                     async for event in self._process_stream_response(response):
                         yield event
                 else:
-                    event = await self._process_normal_response(response)
-                    yield event
+                    async for event in self._process_normal_response(response):
+                        yield event
                 return
             except RateLimitError as e:
                 if attempt < self._max_rate_limit_retries:
@@ -211,16 +220,23 @@ class LLMClient:
 
                 for tool_call in choice.delta.tool_calls:
                     idx = tool_call.index
-                    # [ChoiceDeltaToolCall(index=0, id='E1krIOK6f', function=ChoiceDeltaToolCallFunction(arguments='{"path": "main.py"}', name='read_file'), type='function')]
                     if idx not in tool_calls:
                         tool_calls[idx] = {
                             "id": tool_call.id or "",
                             "name": "",
                             "arguments": "",
                         }
-                        if tool_call.function:
-                            if tool_call.function.name:
-                                tool_calls[idx]["name"] = tool_call.function.name or ""
+
+                    # Update id if provided in this chunk (some providers send it later)
+                    if tool_call.id:
+                        tool_calls[idx]["id"] = tool_call.id
+
+                    if tool_call.function:
+                        # Update name if provided (may arrive in first or later chunk)
+                        if tool_call.function.name:
+                            was_unnamed = not tool_calls[idx]["name"]
+                            tool_calls[idx]["name"] = tool_call.function.name
+                            if was_unnamed:
                                 yield StreamEvent(
                                     type=StreamEventType.TOOL_CALL_START,
                                     tool_call_delta=ToolCallDelta(
@@ -228,19 +244,19 @@ class LLMClient:
                                         name=tool_calls[idx]["name"],
                                     ),
                                 )
-                            if tool_call.function.arguments:
-                                tool_calls[idx][
-                                    "arguments"
-                                ] += tool_call.function.arguments
 
-                                yield StreamEvent(
-                                    type=StreamEventType.TOOL_CALL_DELTA,
-                                    tool_call_delta=ToolCallDelta(
-                                        call_id=tool_calls[idx]["id"],
-                                        name=tool_calls[idx]["name"],
-                                        arguments_delta=tool_calls[idx]["arguments"],
-                                    ),
-                                )
+                        # Accumulate arguments across all chunks
+                        if tool_call.function.arguments:
+                            tool_calls[idx]["arguments"] += tool_call.function.arguments
+
+                            yield StreamEvent(
+                                type=StreamEventType.TOOL_CALL_DELTA,
+                                tool_call_delta=ToolCallDelta(
+                                    call_id=tool_calls[idx]["id"],
+                                    name=tool_calls[idx]["name"],
+                                    arguments_delta=tool_call.function.arguments,
+                                ),
+                            )
 
         for idx, tool_call in tool_calls.items():
             yield StreamEvent(
@@ -259,24 +275,35 @@ class LLMClient:
         )
 
     # Private method to process normal (non-streaming) responses (response already created)
-    async def _process_normal_response(self, response) -> StreamEvent:
+    async def _process_normal_response(
+        self, response
+    ) -> AsyncGenerator[StreamEvent, None]:
         choice = response.choices[0]
         message = choice.message
-        text_delta = "No text present"
+
+        # Yield text content if present
         if message.content:
-            text_delta = TextDelta(content=message.content)
-        tool_calls: list[ToolCall] = []
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(content=message.content),
+            )
+
+        # Yield individual tool call events so the agent loop can collect them
         if message.tool_calls:
             for tool_call in message.tool_calls:
-                tool_calls.append(
-                    ToolCall(
-                        call_id=tool_call.id or "",
-                        name=tool_call.function.name if tool_call.function else "",
-                        arguments=(
-                            tool_call.function.arguments if tool_call.function else ""
-                        ),
-                    )
+                tc = ToolCall(
+                    call_id=tool_call.id or "",
+                    name=tool_call.function.name if tool_call.function else "",
+                    arguments=(
+                        tool_call.function.arguments if tool_call.function else ""
+                    ),
                 )
+                yield StreamEvent(
+                    type=StreamEventType.TOOL_CALL_COMPLETE,
+                    tool_call=tc,
+                )
+
+        usage = None
         if response.usage:
             usage = TokenUsage(
                 prompt_tokens=response.usage.prompt_tokens,
@@ -289,9 +316,9 @@ class LLMClient:
                 ),
             )
 
-            return StreamEvent(
-                type=StreamEventType.MESSAGE_COMPLETE,
-                text_delta=text_delta,
-                usage=usage,
-                final_reason=choice.finish_reason,
-            )
+        yield StreamEvent(
+            type=StreamEventType.MESSAGE_COMPLETE,
+            text_delta=TextDelta(content=message.content or "", is_final=True),
+            usage=usage,
+            final_reason=choice.finish_reason,
+        )

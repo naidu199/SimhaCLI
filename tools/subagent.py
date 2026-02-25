@@ -382,23 +382,20 @@ Focus on platform-specific best practices and user experience.""",
 
 
 def get_default_subagent_definitions() -> list[SubagentDefinition]:
+    """Return a focused set of subagent definitions.
+
+    Keeping the list small (5 subagents) improves compatibility with smaller
+    models that struggle when too many tools are registered. Additional
+    specialized subagents (SECURITY_AUDITOR, PERFORMANCE_ANALYZER, CI_CD_INTEGRATOR,
+    DATABASE_EXPERT, DEVOPS_ASSISTANT, AI_ML_SPECIALIST, FRONTEND_OPTIMIZER,
+    API_DESIGNER, LOCALIZATION_EXPERT, LEGACY_CODE_MODERNIZER,
+    MOBILE_DEVELOPMENT_ASSISTANT, DEPENDENCY_ANALYZER) are still defined above
+    and can be registered manually via ToolRegistry.register() when needed.
+    """
     return [
         CODEBASE_INVESTIGATOR,
         CODE_REVIEWER,
         TEST_GENERATOR,
-        DOCUMENTATION_WRITER,
         BUG_FIXER,
         REFACTORER,
-        DEPENDENCY_ANALYZER,
-        SECURITY_AUDITOR,
-        PERFORMANCE_ANALYZER,
-        CI_CD_INTEGRATOR,
-        DATABASE_EXPERT,
-        DEVOPS_ASSISTANT,
-        AI_ML_SPECIALIST,
-        FRONTEND_OPTIMIZER,
-        API_DESIGNER,
-        LOCALIZATION_EXPERT,
-        LEGACY_CODE_MODERNIZER,
-        MOBILE_DEVELOPMENT_ASSISTANT,
     ]
