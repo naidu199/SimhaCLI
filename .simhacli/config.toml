@@ -1,7 +1,7 @@
 hooks_enabled = true
 
 [model]
-name = "qwen3-coder:480b-cloud"
+name = "minimax-m2.5:cloud"
 
 [[hooks]]
 name = "test_before_tool"

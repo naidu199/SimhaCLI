@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+import asyncio
 import re
 from typing import Any, Awaitable, Callable
 from config.config import ApprovalPolicy
@@ -306,9 +307,12 @@ class ApprovalManager:
 
         return ApprovalDecision.APPROVED
 
-    def request_confirmation(self, confirmation: ToolConfirmation) -> bool:
+    async def request_confirmation(self, confirmation: ToolConfirmation) -> bool:
         if self.confirmation_callback:
             result = self.confirmation_callback(confirmation)
+            # Support both sync and async callbacks
+            if asyncio.iscoroutine(result) or asyncio.isfuture(result):
+                return await result
             return result
 
         return True

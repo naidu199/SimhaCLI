@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import AsyncGenerator, Awaitable, Callable
 
 from agent.events import AgentEvent, AgentEventType
@@ -15,6 +16,9 @@ from config.config import Config
 from prompts.system import create_loop_breaker_prompt
 from tools.base import ToolConfirmation, ToolResult
 
+# Approximate characters per token for truncation calculation
+_CHARS_PER_TOKEN = 4
+
 
 class Agent:
     def __init__(
@@ -25,26 +29,24 @@ class Agent:
         ) = None,
     ) -> None:
         self.config = config
-        # self.client = LLMClient(config=self.config)
-        # self.context_manager = ContextManager(config=self.config)
-        # self.tool_registry = create_default_registry(config=self.config)
         self.session: Session | None = Session(config=self.config)
-
         self.session.approval_manager.confirmation_callback = confirmation_callback
+        # Track file diffs for /undo support
+        self._undo_stack: list[tuple[str, str, str]] = (
+            []
+        )  # (path, old_content, new_content)
 
     async def run(self, message: str) -> AsyncGenerator[AgentEvent, None]:
         await self.session.hook_system.trigger_before_agent(message)
         yield AgentEvent.agent_start(message=message)
         self.session.context_manager.add_user_message(message)
 
-        # add user message to the context
         final_message: str | None = None
         try:
             async for event in self._agentic_loop():
                 yield event
                 if event.type == AgentEventType.TEXT_COMPLETE:
                     final_message = event.data.get("content", "")
-                    # yield AgentEvent.text_complete(content=final_message)
             await self.session.hook_system.trigger_after_agent(
                 user_message=message,
                 agent_response=final_message or "",
@@ -54,15 +56,159 @@ class Agent:
             yield AgentEvent.agent_error(f"Agent encountered an error: {str(e)}")
             await self.session.hook_system.trigger_on_error(e)
 
+    # ------------------------------------------------------------------
+    # Single tool call execution (used for both sequential & parallel)
+    # ------------------------------------------------------------------
+    async def _execute_tool_call(
+        self, tool_call: ToolCall
+    ) -> tuple[list[AgentEvent], ToolResultMessage | None, bool]:
+        """Execute one tool call and return (events, result_message, should_stop).
+
+        Returns collected events instead of yielding so this can be used
+        inside asyncio.gather for parallel execution.
+        """
+        events: list[AgentEvent] = []
+        parsed_args = parse_tool_call_arguments(tool_call.arguments or "")
+
+        # --- Bad JSON ---
+        if "raw_arguments" in parsed_args:
+            raw = parsed_args["raw_arguments"]
+            error_result = ToolResult.error_result(
+                f"Invalid JSON in tool call arguments. Could not parse: {raw[:200]}. "
+                "Please provide valid JSON arguments."
+            )
+            events.append(
+                AgentEvent.tool_call_start(
+                    call_id=tool_call.call_id,
+                    name=tool_call.name,
+                    arguments=parsed_args,
+                )
+            )
+            events.append(
+                AgentEvent.tool_call_complete(
+                    tool_call.call_id, tool_call.name, error_result
+                )
+            )
+            return (
+                events,
+                ToolResultMessage(
+                    tool_call_id=tool_call.call_id,
+                    content=error_result.to_model_output(),
+                    is_error=True,
+                ),
+                False,
+            )
+
+        # --- Missing tool name ---
+        if not tool_call.name:
+            error_result = ToolResult.error_result(
+                "Tool call is missing a tool name. "
+                "Please specify the tool name in the function call."
+            )
+            events.append(
+                AgentEvent.tool_call_start(
+                    call_id=tool_call.call_id,
+                    name=tool_call.name,
+                    arguments=parsed_args,
+                )
+            )
+            events.append(
+                AgentEvent.tool_call_complete(
+                    tool_call.call_id, tool_call.name, error_result
+                )
+            )
+            return (
+                events,
+                ToolResultMessage(
+                    tool_call_id=tool_call.call_id,
+                    content=error_result.to_model_output(),
+                    is_error=True,
+                ),
+                False,
+            )
+
+        events.append(
+            AgentEvent.tool_call_start(
+                call_id=tool_call.call_id,
+                name=tool_call.name,
+                arguments=parsed_args,
+            )
+        )
+
+        self.session.loop_detector.record_action(
+            "tool_call",
+            tool_name=tool_call.name,
+            args=parsed_args,
+        )
+
+        result = await self.session.tool_registry.invoke(
+            tool_call.name,
+            parsed_args,
+            self.config.cwd,
+            self.session.approval_manager,
+            self.session.hook_system,
+        )
+
+        # --- Track file diffs for /undo ---
+        if result.success and result.diff:
+            self._undo_stack.append(
+                (
+                    str(result.diff.path),
+                    result.diff.old_content,
+                    result.diff.new_content,
+                )
+            )
+
+        # --- Truncate oversized tool output ---
+        output = result.to_model_output()
+        max_chars = self.config.max_tool_output_tokens * _CHARS_PER_TOKEN
+        if len(output) > max_chars:
+            output = (
+                output[:max_chars]
+                + "\n\n[Output truncated — exceeded max_tool_output_tokens]"
+            )
+            result.truncated = True
+
+        should_stop = False
+        if not result.success:
+            self.session.loop_detector.record_tool_failure(tool_call.name, parsed_args)
+            loop_val = self.session.loop_detector.check_for_loop()
+            if loop_val:
+                events.append(
+                    AgentEvent.tool_call_complete(
+                        tool_call.call_id, tool_call.name, result
+                    )
+                )
+                events.append(AgentEvent.agent_error(f"Stopping execution: {loop_val}"))
+                return (events, None, True)
+
+        events.append(
+            AgentEvent.tool_call_complete(tool_call.call_id, tool_call.name, result)
+        )
+        return (
+            events,
+            ToolResultMessage(
+                tool_call_id=tool_call.call_id,
+                content=output,
+                is_error=not result.success,
+            ),
+            False,
+        )
+
+    # ------------------------------------------------------------------
+    # Main agentic loop
+    # ------------------------------------------------------------------
     async def _agentic_loop(self) -> AsyncGenerator[AgentEvent, None]:
 
         max_turns = self.config.max_turns
+        empty_retries = 0  # Track consecutive empty responses
 
         for turn_no in range(max_turns):
             self.session.increment_turn_count()
             response_text = ""
             usage: TokenUsage | None = None
-            # checking for the context overflow and trimming if necessary
+
+            # Check for context overflow and compress if necessary
             if self.session.context_manager.needs_compression():
                 summary, usage = await self.session.chat_compressor.compress(
                     self.session.context_manager
@@ -71,14 +217,15 @@ class Agent:
                     self.session.context_manager.replace_with_summary(summary)
                     self.session.context_manager.set_latest_usage(usage)
                     self.session.context_manager.add_usage(usage)
+
             tool_schema = self.session.tool_registry.get_schemas()
             tool_calls: list[ToolCall] = []
-            has_error = False
+            finish_reason: str | None = None
+
             async for event in self.session.client.chat_completion(
                 self.session.context_manager.get_messages(),
                 tools=tool_schema if tool_schema else None,
             ):
-
                 if event.type == StreamEventType.TEXT_DELTA:
                     content = event.text_delta.content if event.text_delta else ""
                     response_text += content
@@ -88,11 +235,11 @@ class Agent:
                         tool_calls.append(event.tool_call)
                 elif event.type == StreamEventType.ERROR:
                     error_msg = event.error if event.error else "Unknown error"
-                    has_error = True
                     yield AgentEvent.agent_error(error_msg)
-                    return  # Stop processing on error
+                    return
                 elif event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
+                    finish_reason = event.final_reason
 
             # Convert tool_calls to the format expected by the API
             tool_calls_dict = (
@@ -111,122 +258,123 @@ class Agent:
                 else None
             )
 
+            # --- Handle output truncation (finish_reason: "length") ---
+            # The model hit its max output token limit. This can truncate
+            # either plain text or tool call arguments mid-generation.
+            # IMPORTANT: We must handle this BEFORE saving the assistant
+            # message — otherwise broken tool_calls poison the context
+            # and every subsequent API call fails with 400.
+            if finish_reason == "length":
+                if tool_calls:
+                    # Tool call arguments are likely incomplete JSON — save
+                    # only the text portion (discard the broken tool calls)
+                    # so the context stays valid.
+                    self.session.context_manager.add_assistant_message(
+                        response_text or "", tool_calls=None
+                    )
+                    self.session.context_manager.add_user_message(
+                        "Your response was cut off due to output length limits, and "
+                        "your tool call arguments were truncated (incomplete JSON). "
+                        "Please retry — if the content is large, break it into "
+                        "smaller parts using multiple tool calls."
+                    )
+                else:
+                    # Text-only output was cut off. Save what we got, then
+                    # ask the model to continue from where it stopped.
+                    self.session.context_manager.add_assistant_message(
+                        response_text or "", tool_calls=None
+                    )
+                    if response_text:
+                        yield AgentEvent.text_complete(response_text)
+                    self.session.context_manager.add_user_message(
+                        "Your response was cut off due to output length limits. "
+                        "Please continue exactly where you left off. Do NOT repeat "
+                        "any content you already produced — just continue from the "
+                        "exact point of interruption."
+                    )
+                if usage:
+                    self.session.context_manager.set_latest_usage(usage)
+                    self.session.context_manager.add_usage(usage)
+                continue
+
+            # Normal (non-truncated) response — save with tool calls intact
             self.session.context_manager.add_assistant_message(
                 response_text or "", tool_calls=tool_calls_dict
             )
 
             if response_text:
                 yield AgentEvent.text_complete(response_text)
-                self.session.loop_detector.record_action(
-                    "response",
-                    text=response_text,
-                )
+                self.session.loop_detector.record_action("response", text=response_text)
+                empty_retries = 0  # Reset on any content
 
             if not tool_calls:
-                if usage:
-                    self.session.context_manager.set_latest_usage(usage)
-                    self.session.context_manager.add_usage(usage)
-
-                self.session.context_manager.prune_tool_outputs()
-
-                return  # No tool calls, end the loop
-
-            tool_call_results: list[ToolResultMessage] = []
-
-            for tool_call in tool_calls:
-                parsed_args = parse_tool_call_arguments(tool_call.arguments or "")
-
-                # If argument parsing returned raw_arguments, provide a clear
-                # error back to the model so it can retry with valid JSON.
-                if "raw_arguments" in parsed_args:
-                    raw = parsed_args["raw_arguments"]
-                    error_result = ToolResult.error_result(
-                        f"Invalid JSON in tool call arguments. Could not parse: {raw[:200]}. "
-                        "Please provide valid JSON arguments."
-                    )
-                    yield AgentEvent.tool_call_start(
-                        call_id=tool_call.call_id,
-                        name=tool_call.name,
-                        arguments=parsed_args,
-                    )
-                    yield AgentEvent.tool_call_complete(
-                        tool_call.call_id,
-                        tool_call.name,
-                        error_result,
-                    )
-                    tool_call_results.append(
-                        ToolResultMessage(
-                            tool_call_id=tool_call.call_id,
-                            content=error_result.to_model_output(),
-                            is_error=True,
-                        )
+                # --- Auto-retry on completely empty response (no text, no tools) ---
+                if not response_text and empty_retries < 1:
+                    empty_retries += 1
+                    self.session.context_manager.add_user_message(
+                        "Your last response was empty. Please continue with the task."
                     )
                     continue
 
-                yield AgentEvent.tool_call_start(
-                    call_id=tool_call.call_id,
-                    name=tool_call.name,
-                    arguments=parsed_args,
+                if usage:
+                    self.session.context_manager.set_latest_usage(usage)
+                    self.session.context_manager.add_usage(usage)
+                self.session.context_manager.prune_tool_outputs()
+                return
+
+            # Reset empty retries since tool calls were made
+            empty_retries = 0
+
+            # --- Execute tool calls (parallel when >1, sequential for single) ---
+            tool_call_results: list[ToolResultMessage] = []
+
+            if len(tool_calls) == 1:
+                # Single tool call — run directly and yield events immediately
+                events, result_msg, should_stop = await self._execute_tool_call(
+                    tool_calls[0]
                 )
+                for ev in events:
+                    yield ev
+                if should_stop:
+                    return
+                if result_msg:
+                    tool_call_results.append(result_msg)
+            else:
+                # Multiple tool calls — run in parallel via asyncio.gather
+                tasks = [self._execute_tool_call(tc) for tc in tool_calls]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                self.session.loop_detector.record_action(
-                    "tool_call",
-                    tool_name=tool_call.name,
-                    args=parsed_args,
-                )
+                stop_requested = False
+                for r in results:
+                    if isinstance(r, Exception):
+                        yield AgentEvent.agent_error(f"Tool execution error: {r}")
+                        continue
+                    events, result_msg, should_stop = r
+                    for ev in events:
+                        yield ev
+                    if should_stop:
+                        stop_requested = True
+                    if result_msg:
+                        tool_call_results.append(result_msg)
 
-                result = await self.session.tool_registry.invoke(
-                    tool_call.name or "",
-                    parsed_args,
-                    self.config.cwd,
-                    self.session.approval_manager,
-                    self.session.hook_system,
-                )
+                if stop_requested:
+                    return
 
-                # Record tool failure for loop detection
-                if not result.success:
-                    self.session.loop_detector.record_tool_failure(
-                        tool_call.name or "", parsed_args
-                    )
-
-                    # Check for consecutive failures immediately
-                    loop_detector_value = self.session.loop_detector.check_for_loop()
-                    if loop_detector_value:
-                        yield AgentEvent.tool_call_complete(
-                            tool_call.call_id,
-                            tool_call.name,
-                            result,
-                        )
-                        yield AgentEvent.agent_error(
-                            f"Stopping execution: {loop_detector_value}"
-                        )
-                        return
-
-                yield AgentEvent.tool_call_complete(
-                    tool_call.call_id,
-                    tool_call.name,
-                    result,
-                )
-                tool_call_results.append(
-                    ToolResultMessage(
-                        tool_call_id=tool_call.call_id,
-                        content=result.to_model_output(),
-                        is_error=not result.success,
-                    )
-                )
-
+            # Add tool results to context
             for tool_result in tool_call_results:
                 self.session.context_manager.add_tool_result(
                     tool_result.tool_call_id,
                     tool_result.content,
                 )
+
             loop_detector_value = self.session.loop_detector.check_for_loop()
             if loop_detector_value:
                 loop_prompt = create_loop_breaker_prompt(
                     loop_description=loop_detector_value,
                 )
                 self.session.context_manager.add_user_message(loop_prompt)
-                continue  # Skip executing the tool and continue the loop
+                continue
+
             if usage:
                 self.session.context_manager.set_latest_usage(usage)
                 self.session.context_manager.add_usage(usage)
@@ -242,8 +390,15 @@ class Agent:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        if self.session and self.session.client and self.session.mcp_manager:
-            await self.session.client.close_client()
-            await self.session.mcp_manager.shutdown_mcp()
-            self.session.client = None
+        if self.session:
+            try:
+                if self.session.client:
+                    await self.session.client.close_client()
+            except Exception:
+                pass
+            try:
+                if self.session.mcp_manager:
+                    await self.session.mcp_manager.shutdown_mcp()
+            except Exception:
+                pass
             self.session = None

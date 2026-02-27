@@ -452,7 +452,7 @@ class SimhaCLI:
             console.print(f"[success]Checkpoint created: {checkpoint_id}[/success]")
         elif cmd_name == "/restore":
             if not cmd_args:
-                console.print(f"[error]Usage: /restire <checkpoint_id> [/error]")
+                console.print(f"[error]Usage: /restore <checkpoint_id> [/error]")
             else:
                 state_manager = StateManager()
                 snapshot = state_manager.load_checkpoint(cmd_args)
@@ -490,10 +490,45 @@ class SimhaCLI:
 
                     self.agent.session = session
                     console.print(
-                        f"[success]Resumed session: {session.session_id}, checkpoint: {checkpoint_id}[/success]"
+                        f"[success]Restored checkpoint for session: {session.session_id}[/success]"
                     )
         elif cmd_name == "/credentials" or cmd_name == "/creds":
             await self._handle_credentials_command(cmd_args)
+        elif cmd_name == "/undo":
+            if not self.agent._undo_stack:
+                console.print("[warning]Nothing to undo.[/warning]")
+            else:
+                path_str, old_content, new_content = self.agent._undo_stack.pop()
+                try:
+                    file_path = Path(path_str)
+                    if old_content == "" and file_path.exists():
+                        # File was newly created — delete it
+                        file_path.unlink()
+                        console.print(
+                            f"[success]Undo: deleted newly created file {path_str}[/success]"
+                        )
+                    elif file_path.exists():
+                        current = file_path.read_text(encoding="utf-8")
+                        if current == new_content:
+                            file_path.write_text(old_content, encoding="utf-8")
+                            console.print(
+                                f"[success]Undo: reverted {path_str}[/success]"
+                            )
+                        else:
+                            console.print(
+                                f"[warning]File {path_str} has been modified since the last edit. "
+                                f"Undo skipped to avoid data loss.[/warning]"
+                            )
+                            # Push it back since we didn't undo
+                            self.agent._undo_stack.append(
+                                (path_str, old_content, new_content)
+                            )
+                    else:
+                        console.print(
+                            f"[warning]File {path_str} no longer exists.[/warning]"
+                        )
+                except Exception as e:
+                    console.print(f"[error]Undo failed: {e}[/error]")
         else:
             console.print(f"[error]Unknown command: {cmd_name}[/error]")
 

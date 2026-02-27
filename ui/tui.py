@@ -933,6 +933,7 @@ class TUI:
 - `/restore <checkpoint_id>` - Restore a checkpoint
 - `/sessions` - List saved sessions
 - `/resume <session_id>` - Resume a saved session
+- `/undo` - Undo the last file edit made by the agent
 
 ## Input Controls
 

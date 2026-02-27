@@ -49,6 +49,13 @@ class LLMClient:
             params.setdefault("type", "object")
             params.setdefault("properties", {})
 
+            # Clean up each property — many API providers reject Pydantic
+            # artefacts like "anyOf", "default", "title" in tool schemas.
+            cleaned_props = {}
+            for pname, pval in params.get("properties", {}).items():
+                cleaned_props[pname] = self._clean_property(pval)
+            params["properties"] = cleaned_props
+
             built.append(
                 {
                     "type": "function",
@@ -60,6 +67,56 @@ class LLMClient:
                 }
             )
         return built
+
+    @staticmethod
+    def _clean_property(prop: dict[str, Any]) -> dict[str, Any]:
+        """Strip Pydantic JSON-Schema artefacts that many LLM APIs reject.
+
+        Handles: anyOf (Optional types), default values, title fields,
+        and recurses into nested object properties and array items.
+        """
+        import copy
+
+        p = copy.deepcopy(prop)
+
+        # Remove "title" — Pydantic adds this but APIs don't use it
+        p.pop("title", None)
+
+        # Remove "default" — many API providers reject this field
+        p.pop("default", None)
+
+        # Resolve "anyOf" — Pydantic generates this for Optional[X] types
+        # e.g. {"anyOf": [{"type": "string"}, {"type": "null"}]} → {"type": "string"}
+        if "anyOf" in p:
+            any_of = p.pop("anyOf")
+            # Pick the first non-null type
+            for variant in any_of:
+                if isinstance(variant, dict) and variant.get("type") != "null":
+                    # Merge the chosen variant into the property
+                    for k, v in variant.items():
+                        if k not in p:
+                            p[k] = v
+                    break
+            # If no type was set (all null?), default to string
+            if "type" not in p:
+                p["type"] = "string"
+
+        # Recurse into nested object properties
+        if p.get("type") == "object" and "properties" in p:
+            cleaned = {}
+            for k, v in p["properties"].items():
+                if isinstance(v, dict):
+                    cleaned[k] = LLMClient._clean_property(v)
+                else:
+                    cleaned[k] = v
+            p["properties"] = cleaned
+
+        # Recurse into array items
+        if p.get("type") == "array" and "items" in p:
+            if isinstance(p["items"], dict):
+                p["items"] = LLMClient._clean_property(p["items"])
+
+        return p
 
     async def chat_completion(
         self,
@@ -73,9 +130,12 @@ class LLMClient:
             "model": self._config.model.name,
             "messages": messages,
             "temperature": self._config.model.temperature,
-            # "top_p": 0.9,
             "stream": stream,
         }
+
+        if stream:
+            # Request usage stats in streaming mode (supported by OpenAI, OpenRouter)
+            kwargs["stream_options"] = {"include_usage": True}
 
         if tools is not None:
             kwargs["tools"] = self._build_tools(tools)
