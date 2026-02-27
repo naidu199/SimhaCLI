@@ -35,6 +35,7 @@ class TokenUsage:  # Tracks token usage statistics
 
 class StreamEventType(str, Enum):  # Types of events that can occur during streaming
     TEXT_DELTA = "text_delta"
+    THINKING_DELTA = "thinking_delta"
     MESSAGE_COMPLETE = "message_complete"
     ERROR = "error"
 
@@ -62,6 +63,7 @@ class ToolCall:
 class StreamEvent:  # Represents an event during streaming
     type: StreamEventType
     text_delta: TextDelta | None = None
+    thinking_delta: str | None = None
     error: str | None = None
     final_reason: str | None = None
     usage: TokenUsage | None = None

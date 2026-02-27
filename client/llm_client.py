@@ -267,8 +267,26 @@ class LLMClient:
                 else ""
             )
 
+            # Capture reasoning/thinking tokens from models that support it
+            # (DeepSeek uses reasoning_content, some use reasoning)
+            thinking_content = ""
+            if choice.delta:
+                thinking_content = (
+                    getattr(choice.delta, "reasoning_content", None)
+                    or getattr(choice.delta, "reasoning", None)
+                    or ""
+                )
+
             if choice.finish_reason is not None:
                 final_reason = choice.finish_reason
+
+            # Yield thinking tokens before text content
+            if thinking_content:
+                yield StreamEvent(
+                    type=StreamEventType.THINKING_DELTA,
+                    thinking_delta=thinking_content,
+                )
+
             if delta_content:
                 yield StreamEvent(
                     type=StreamEventType.TEXT_DELTA,

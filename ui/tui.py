@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 from typing import Any
 from rich.console import Console
@@ -26,6 +27,32 @@ from utils.paths import display_path_rel_to_cwd
 import re
 
 from utils.text import truncate_text
+
+
+class _TimerRenderable:
+    """A renderable that shows a spinner + elapsed time on every refresh."""
+
+    _BRAILLE = ["⠙", "⠸", "⠴", "⠦", "⠇", "⠏", "⠒", "⠱"]
+
+    def __init__(self, label: str, start_time: float) -> None:
+        self._label = label
+        self._start = start_time
+        self._frame = 0
+
+    def __rich_console__(self, console, options):
+        elapsed = time.monotonic() - self._start
+        if elapsed < 60:
+            ts = f"{elapsed:.1f}s"
+        else:
+            m, s = divmod(int(elapsed), 60)
+            ts = f"{m}m {s}s"
+        spinner = self._BRAILLE[self._frame % len(self._BRAILLE)]
+        self._frame += 1
+        yield Text.assemble(
+            (f"{spinner} ", "gold1"),
+            (f"🦁 {self._label} ", "gold1 bold"),
+            (f"({ts})", "dim"),
+        )
 
 
 SIMHA_THEME = Theme(
@@ -104,6 +131,18 @@ class TUI:
         self._status: Status | None = None
         self._live: Live | None = None
         self._last_render_len = 0
+
+        # Thinking display state
+        self._thinking_live: Live | None = None
+        self._thinking_content = ""
+        self._thinking_started = False
+        self._thinking_start_time: float = 0.0
+
+        # Request timer
+        self._request_start_time: float = 0.0
+
+        # Working indicator (Live with timer)
+        self._working_live: Live | None = None
 
         # Setup multi-line input with prompt_toolkit
         self._prompt_session = self._create_prompt_session()
@@ -250,15 +289,107 @@ class TUI:
     def stream_assistant_delta(self, content: str) -> None:
         self._buffered_content += content
         if self._live:
-            # Only re-render every 50 chars to reduce flicker
-            if len(self._buffered_content) - self._last_render_len > 50:
+            # Re-render every 15 chars for responsive streaming feel
+            if len(self._buffered_content) - self._last_render_len > 15:
                 self._last_render_len = len(self._buffered_content)
                 self._live.update(Markdown(self._buffered_content + " ▌"))
+
+    # ── Thinking display (grey/dim text like Copilot) ─────────────
+
+    @staticmethod
+    def _fmt_elapsed(seconds: float) -> str:
+        """Format elapsed seconds as a human-readable string."""
+        if seconds < 60:
+            return f"{seconds:.1f}s"
+        mins = int(seconds) // 60
+        secs = seconds - mins * 60
+        return f"{mins}m {secs:.1f}s"
+
+    def begin_thinking(self) -> None:
+        """Start thinking display — dim text with a running timer."""
+        self.stop_loading()  # stop spinner if running
+        self._thinking_content = ""
+        self._thinking_started = True
+        self._thinking_start_time = time.monotonic()
+        self._thinking_live = Live(
+            Text("💭 SimhaCLI thinking… 0.0s", style="dim italic"),
+            console=self.console,
+            refresh_per_second=4,
+        )
+        self._thinking_live.start()
+
+    def stream_thinking_delta(self, content: str) -> None:
+        """Append a reasoning token and refresh the dim display with timer."""
+        if not self._thinking_started:
+            self.begin_thinking()
+        self._thinking_content += content
+        if self._thinking_live:
+            elapsed = self._fmt_elapsed(time.monotonic() - self._thinking_start_time)
+            # Truncate display to last 800 chars to keep it compact
+            display = self._thinking_content
+            if len(display) > 800:
+                display = "…" + display[-800:]
+            self._thinking_live.update(
+                Text.assemble(
+                    ("💭 ", "dim"),
+                    (f"SimhaCLI thinking ({elapsed}) ", "dim italic"),
+                    (display, "grey54 italic"),
+                    (" ▌", "dim"),
+                )
+            )
+
+    def end_thinking(self) -> None:
+        """Close the thinking Live display."""
+        elapsed = (
+            self._fmt_elapsed(time.monotonic() - self._thinking_start_time)
+            if self._thinking_started
+            else ""
+        )
+        # Stop the Live display (clears the animated line)
+        if self._thinking_live:
+            # Update final frame with elapsed time before stopping
+            if elapsed and self._thinking_content.strip():
+                display = self._thinking_content.strip().replace("\n", " ")
+                if len(display) > 500:
+                    display = display[:500] + "…"
+                self._thinking_live.update(
+                    Text.assemble(
+                        ("💭 ", "dim"),
+                        (f"thought for {elapsed}  ", "grey54 italic bold"),
+                        (display, "grey54 italic"),
+                    )
+                )
+            elif elapsed:
+                self._thinking_live.update(
+                    Text(f"💭 thought for {elapsed}", style="grey54 italic")
+                )
+            self._thinking_live.stop()
+            self._thinking_live = None
+
+        self._thinking_content = ""
+        self._thinking_started = False
+        self._thinking_start_time = 0.0
 
     def display_error(self, error_message: str) -> None:
         # Stop loading indicator if it's running
         self.stop_loading()
         self.console.print(f"[error]Error: {error_message}[/error]")
+
+    def start_request_timer(self) -> None:
+        """Start the overall request timer."""
+        self._request_start_time = time.monotonic()
+
+    def start_working(self) -> None:
+        """Start (or restart) the working spinner with a running timer."""
+        # Don't start if already running
+        if self._working_live:
+            return
+        self._working_live = Live(
+            _TimerRenderable("Simha is working...", time.monotonic()),
+            console=self.console,
+            refresh_per_second=2,
+        )
+        self._working_live.start()
 
     def agent_start(self, message: str) -> None:
         self.console.print()
@@ -270,31 +401,39 @@ class TUI:
                 (message, "cyan"),
             )
         )
-        # Start loading indicator
-        self._status = self.console.status(
-            "[gold1]🦁 Simha is working...[/gold1]", spinner="dots"
-        )
-        self._status.start()
+        # Start loading indicator with running timer
+        self.start_working()
 
     def stop_loading(self) -> None:
         """Stop the loading indicator if it's running"""
+        if self._working_live:
+            self._working_live.stop()
+            self._working_live = None
         if self._status:
             self._status.stop()
             self._status = None
 
     def agent_end(self, usage: dict[str, Any] | None = None) -> None:
-        # Stop loading indicator
+        # Stop loading indicators
+        if self._working_live:
+            self._working_live.stop()
+            self._working_live = None
         if self._status:
             self._status.stop()
             self._status = None
 
-        # self.console.print()
+        # Calculate total elapsed time
+        elapsed_str = ""
+        if self._request_start_time:
+            elapsed = time.monotonic() - self._request_start_time
+            elapsed_str = f" in {self._fmt_elapsed(elapsed)}"
+            self._request_start_time = 0.0
 
         if usage:
             text = Text.assemble(
                 ("SimhaCLI", "bold green"),
                 ("🦁  ", "green"),
-                ("  complete  ", "dim"),
+                (f"  complete{elapsed_str}  ", "dim"),
                 (
                     f"{usage.get('total_tokens', 0)} tokens "
                     f"({usage.get('prompt_tokens', 0)} prompt + "
@@ -306,7 +445,7 @@ class TUI:
             text = Text.assemble(
                 ("SimhaCLI", "bold green"),
                 ("🦁  ", "green"),
-                ("  complete", "dim"),
+                (f"  complete{elapsed_str}", "dim"),
             )
 
         self.console.print(text)

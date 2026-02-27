@@ -17,6 +17,10 @@ class AgentEventType(str, Enum):
     TEXT_DELTA = "text_delta"
     TEXT_COMPLETE = "text_complete"
 
+    # Thinking / reasoning events (shown as grey text)
+    THINKING_DELTA = "thinking_delta"
+    THINKING_COMPLETE = "thinking_complete"
+
     # Tool call events
     TOOL_CALL_START = "tool_call_start"
     TOOL_CALL_END = "tool_call_end"
@@ -70,6 +74,20 @@ class AgentEvent:
     def text_complete(cls, content: str) -> AgentEvent:
         return cls(
             type=AgentEventType.TEXT_COMPLETE,
+            data={"content": content},
+        )
+
+    @classmethod
+    def thinking_delta(cls, content: str) -> AgentEvent:
+        return cls(
+            type=AgentEventType.THINKING_DELTA,
+            data={"content": content},
+        )
+
+    @classmethod
+    def thinking_complete(cls, content: str) -> AgentEvent:
+        return cls(
+            type=AgentEventType.THINKING_COMPLETE,
             data={"content": content},
         )
 

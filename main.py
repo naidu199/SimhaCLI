@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import time
 import click
 from agent.agent import Agent
 from agent.events import AgentEventType
@@ -111,11 +112,31 @@ class SimhaCLI:
 
         response_content = ""
         text_started = False
+        thinking_active = False
+        self.tui.start_request_timer()
         async for event in self.agent.run(message):
             # print(event)
-            if event.type == AgentEventType.TEXT_DELTA:
+
+            # ── Thinking (reasoning tokens) ──────────────────────
+            if event.type == AgentEventType.THINKING_DELTA:
+                if not thinking_active:
+                    self.tui.begin_thinking()
+                    thinking_active = True
+                self.tui.stream_thinking_delta(event.data.get("content", ""))
+
+            elif event.type == AgentEventType.THINKING_COMPLETE:
+                if thinking_active:
+                    self.tui.end_thinking()
+                    thinking_active = False
+
+            # ── Text output ──────────────────────────────────────
+            elif event.type == AgentEventType.TEXT_DELTA:
+                # Close thinking if still active when text begins
+                if thinking_active:
+                    self.tui.end_thinking()
+                    thinking_active = False
                 if not text_started:
-                    # Stop spinner when text starts
+                    # Stop working spinner when text starts streaming
                     self.tui.stop_loading()
                     self.tui.begin_assistant()
                     text_started = True

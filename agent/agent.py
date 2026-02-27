@@ -51,7 +51,9 @@ class Agent:
                 user_message=message,
                 agent_response=final_message or "",
             )
-            yield AgentEvent.agent_end(response=final_message)
+            # Pass cumulative usage so the TUI can display token counts
+            total_usage = self.session.context_manager.get_total_usage
+            yield AgentEvent.agent_end(response=final_message, usage=total_usage)
         except Exception as e:
             yield AgentEvent.agent_error(f"Agent encountered an error: {str(e)}")
             await self.session.hook_system.trigger_on_error(e)
@@ -222,11 +224,20 @@ class Agent:
             tool_calls: list[ToolCall] = []
             finish_reason: str | None = None
 
+            thinking_text = ""
             async for event in self.session.client.chat_completion(
                 self.session.context_manager.get_messages(),
                 tools=tool_schema if tool_schema else None,
             ):
-                if event.type == StreamEventType.TEXT_DELTA:
+                if event.type == StreamEventType.THINKING_DELTA:
+                    delta = event.thinking_delta or ""
+                    thinking_text += delta
+                    yield AgentEvent.thinking_delta(delta)
+                elif event.type == StreamEventType.TEXT_DELTA:
+                    # Transition: if we were thinking, close it before text
+                    if thinking_text:
+                        yield AgentEvent.thinking_complete(thinking_text)
+                        thinking_text = ""
                     content = event.text_delta.content if event.text_delta else ""
                     response_text += content
                     yield AgentEvent.text_delta(content)
@@ -240,6 +251,11 @@ class Agent:
                 elif event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
                     finish_reason = event.final_reason
+
+            # Close thinking display if still open (e.g. thinking → tool_calls)
+            if thinking_text:
+                yield AgentEvent.thinking_complete(thinking_text)
+                thinking_text = ""
 
             # Convert tool_calls to the format expected by the API
             tool_calls_dict = (
