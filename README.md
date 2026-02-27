@@ -4,13 +4,13 @@
 
 ### AI-Powered Coding Agent for Your Terminal
 
+[![PyPI version](https://img.shields.io/pypi/v/simhacli.svg)](https://pypi.org/project/simhacli/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-_Built by Narasimha Naidu Korrapti_
+_Built by [Narasimha Naidu Korrapati](https://www.linkedin.com/in/narasimhanaidukorrapati/)_
 
-[Features](#-features) • [Installation](#-installation)
+[Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [Commands](#-commands) • [Tools](#-tools)
 
 </div>
 
@@ -18,59 +18,70 @@ _Built by Narasimha Naidu Korrapti_
 
 ## 📖 Overview
 
-**SimhaCLI** is a powerful terminal-based AI coding agent that brings the intelligence of Large Language Models directly into your development workflow. It seamlessly integrates with your codebase, understands context, and executes actions through a comprehensive set of builtin tools.
+**SimhaCLI** is a powerful terminal-based AI coding agent that brings the intelligence of Large Language Models directly into your development workflow. It reads your code, executes tools, manages sessions, and streams its thinking — all inside your terminal.
 
-### Why SimhaCLI?
+```
+SimhaCLI🦁  starting  refactor my auth module
+⠦ 🦁 Simha is working... (2.1s)
+💭 SimhaCLI thinking (1.3s) The user wants to refactor the auth module...  ▌
+💭 thought for 1.3s
 
-- 🚀 **Session-Based Architecture**: Persistent context and memory across interactions
-- 🛠️ **11 Builtin Tools**: File operations, shell commands, web access, task management
-- 🔒 **Safety First**: Shell command blocking prevents dangerous operations
-- 💾 **Persistent Memory**: Remember user preferences and context
-- 🎨 **Beautiful TUI**: Rich terminal interface with syntax highlighting
-- ⚡ **Streaming Responses**: Real-time output as the agent thinks
-- 🔄 **Event-Driven**: Observable agent actions with full transparency
+I'll read the existing auth module first and then suggest improvements.
+SimhaCLI🦁  complete in 14.2s  8821 tokens (8120 prompt + 701 completion)
+```
 
 ---
 
 ## ✨ Features
 
-### 🤖 Intelligent Agent
+### 🤖 Intelligent Agentic Loop
 
-- **Agentic Loop**: Autonomous multi-turn conversations with tool usage
-- **Context Management**: Tracks conversation history with token counting
-- **Turn Tracking**: Session-based state management with UUIDs
-- **Streaming Output**: Real-time response generation
+- **Multi-turn reasoning** — autonomously calls tools, reads results, and continues until the task is done
+- **Parallel tool execution** — runs multiple tool calls simultaneously with `asyncio.gather`
+- **Context compression** — auto-summarises history when the context window fills up
+- **Loop detection** — detects and breaks repetitive behaviour automatically
+- **Truncation recovery** — handles `finish_reason: length` gracefully, continues or retries
 
-### 🛠️ Comprehensive Toolset
+### 💭 Thinking Display
 
-11 builtin tools across 5 categories:
+- **Live reasoning** — streaming 💭 display shows what the model is thinking in grey italic text
+- **Running timer** — see how long the model has been reasoning
+- **Collapsed summary** — freezes as `💭 thought for X.Xs` when reasoning completes (models with extended thinking)
 
-- **📖 Read**: `read_file`, `list_dir`, `glob`, `grep`
-- **✏️ Write**: `write_file`, `edit_file`
-- **🖥️ Shell**: `shell` (with 40+ blocked dangerous commands)
-- **🌐 Web**: `web_search`, `web_fetch`
-- **💾 Memory**: `todos` (task management), `memory` (persistent storage)
+### ⏱️ Performance Visibility
 
-### 🔒 Safety & Security
+- **Live working spinner** — `⠦ 🦁 Simha is working... (10.1s)` shows elapsed time
+- **Total request timer** — complete time shown on every response
+- **Token tracking** — `complete in 12.4s  8375 tokens (8119 prompt + 256 completion)`
 
-- Command blocking for dangerous operations (rm -rf, format, etc.)
-- Timeout protection on shell commands (120s default, 600s max)
-- File validation and error handling
-- Configurable working directory restrictions
+### 🛠️ 16 Built-in Tools
 
-### 💾 Persistent Storage
+| Category      | Tools                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------- |
+| 📖 Read       | `read_file`, `list_dir`, `glob`, `grep`                                               |
+| ✏️ Write      | `write_file`, `edit_file`                                                             |
+| 🖥️ Shell      | `shell` (40+ blocked dangerous commands)                                              |
+| 🌐 Web        | `web_search`, `web_fetch`                                                             |
+| 💾 Memory     | `todos` (task management), `memory` (persistent key-value)                            |
+| 🤖 Sub-agents | `codebase_investigator`, `code_reviewer`, `test_generator`, `bug_fixer`, `refactorer` |
 
-- **User Memory**: JSON-based key-value storage (`~/.simhacli/user_memory.json`)
-- **Configuration**: System and project-level TOML configs
-- **Session Tracking**: UUID-based session management with timestamps
+### 🔌 MCP (Model Context Protocol)
 
-### 🎨 Rich Terminal UI
+- Connect to any MCP server via stdio or HTTP/SSE transport
+- Tools discovered automatically at startup
+- Manage connections live with `/mcp`
 
-- Syntax-highlighted code display
-- Color-coded tool execution (cyan=read, yellow=write, white=shell)
-- Live streaming text output
-- Beautiful welcome banner and formatting
-- Error panels with detailed information
+### 💾 Session Management
+
+- Save sessions to disk (`/save`) and resume them later (`/resume <id>`)
+- Create mid-task checkpoints (`/checkpoint` / `/restore <id>`)
+- Undo the last file edit (`/undo`)
+
+### 🔒 Safety & Approval
+
+- Configurable approval policy — from `on_request` to fully autonomous `yolo`
+- Shell command allowlist/blocklist
+- Environment variable masking (API keys, tokens, secrets never leaked to the model)
 
 ---
 
@@ -78,107 +89,196 @@ _Built by Narasimha Naidu Korrapti_
 
 ### Prerequisites
 
-- **Python 3.10+**
-- **API Key** (OpenAI, Gemini, or compatible API)
+- Python 3.10+
+- An API key (OpenRouter, OpenAI, Gemini, or any OpenAI-compatible endpoint)
 
-### Option 1: Install from PyPI (Recommended)
+### Install from PyPI (Recommended)
 
 ```bash
 pip install simhacli
 ```
 
-After installation, you can run SimhaCLI from anywhere:
-
 ```bash
-simhacli                    # Start interactive mode
-simhacli "explain this code" # Run a single prompt
-simhacli --help             # Show help
+simhacli                          # interactive mode
+simhacli "fix the bug in app.py"  # single prompt
+simhacli --help                   # show all options
 ```
 
-### Option 2: Install from Source
+### Install from Source
 
-1. **Clone the repository**
+```bash
+git clone https://github.com/naidu199/SimhaCLI.git
+cd SimhaCLI
+pip install -e .
+simhacli
+```
 
-   ```bash
-   git clone https://github.com/naidu199/SimhaCLI.git
-   cd SimhaCLI
-   ```
+---
 
-2. **Install globally (access from anywhere)**
+## ⚙️ Configuration
 
-   ```bash
-   pip install -e .
-   ```
+SimhaCLI looks for configuration in two places (project overrides global):
 
-   Or install without editable mode:
+| Location                          | Purpose               |
+| --------------------------------- | --------------------- |
+| `~/.simhacli/config.toml`         | Global defaults       |
+| `<project>/.simhacli/config.toml` | Per-project overrides |
 
-   ```bash
-   pip install .
-   ```
+### Minimal config.toml
 
-3. **Now you can use `simhacli` from anywhere:**
+```toml
+[model]
+name = "mistralai/devstral-2512:free"
+temperature = 1.0
 
-   ```bash
-   simhacli                    # Start interactive mode
-   simhacli "your prompt"       # Run a single command
-   simhacli --cwd /path/to/dir  # Set working directory
-   ```
+api_key = "your_api_key_here"
+api_base_url = "https://openrouter.ai/api/v1"
+```
 
-### Option 3: Development Setup
-
-1. **Clone and create virtual environment**
-
-   ```bash
-   git clone https://github.com/naidu199/SimhaCLI.git
-   cd SimhaCLI
-   python -m venv venv
-
-   # Windows
-   venv\Scripts\activate
-
-   # Linux/Mac
-   source venv/bin/activate
-   ```
-
-2. **Install in editable mode**
-
-   ```bash
-   pip install -e .
-   ```
-
-3. **Run SimhaCLI**
-
-   ```bash
-   simhacli
-   ```
-
-### Configuration
-
-Set up your API credentials using one of these methods:
-
-**Method 1: Environment Variables**
+### Environment Variables
 
 ```bash
 # Windows (PowerShell)
 $env:API_KEY = "your_api_key_here"
-$env:API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+$env:API_BASE_URL = "https://openrouter.ai/api/v1"
 
-# Windows (CMD)
-set API_KEY=your_api_key_here
-set API_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
-
-# Linux/Mac
-export API_KEY=your_api_key_here
-export API_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+# Linux / macOS
+export API_KEY="your_api_key_here"
+export API_BASE_URL="https://openrouter.ai/api/v1"
 ```
 
-**Method 2: Config File**
+### Set credentials interactively
 
 ```bash
-# Create config directory
-mkdir -p ~/.simhacli
+simhacli
+> /credentials
+```
 
-# Create/edit config.toml
+### Full config.toml Reference
+
+```toml
+[model]
+name = "mistralai/devstral-2512:free"   # any OpenAI-compatible model
+temperature = 1.0
+
+api_key = "sk-..."
+api_base_url = "https://openrouter.ai/api/v1"
+
+max_turns = 72                  # max agentic loop turns per request
+max_tool_output_tokens = 50000  # truncate large tool outputs
+approval = "on_request"         # see Approval Policies below
+hooks_enabled = true
+developer_instructions = "Always prefer TypeScript over JavaScript."
+user_instructions = "Be concise."
+
+# Restrict which tools the agent can use
+# allowed_tools = ["read_file", "write_file", "shell"]
+
+[shell_environment]
+ignore_default_excludes = false
+exclude_patterns = ["*KEY*", "*TOKEN*", "*SECRET*"]
+
+# Add MCP servers
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
+
+# HTTP/SSE transport
+[mcp_servers.my_remote]
+url = "http://localhost:8000/sse"
+
+# Add lifecycle hooks
+[[hooks]]
+name = "format_on_write"
+trigger = "after_tool"
+command = "black {file}"
+enabled = true
+```
+
+### Approval Policies
+
+| Policy         | Behaviour                                           |
+| -------------- | --------------------------------------------------- |
+| `on_request`   | Ask before shell commands and file writes (default) |
+| `always`       | Ask before every tool call                          |
+| `auto_approve` | Auto-approve everything                             |
+| `auto_edit`    | Auto-approve file edits, ask for shell              |
+| `on_failure`   | Only ask if the tool fails                          |
+| `yolo`         | Never ask — fully autonomous                        |
+| `never`        | Block all tool calls                                |
+
+---
+
+## 💬 Commands
+
+Type any of these during an interactive session:
+
+| Command              | Description                                |
+| -------------------- | ------------------------------------------ |
+| `/help`              | Show all commands                          |
+| `/exit` / `/quit`    | Exit SimhaCLI                              |
+| `/clear`             | Clear conversation history                 |
+| `/model <name>`      | Switch model (saves to project config)     |
+| `/approval <policy>` | Change approval policy                     |
+| `/config`            | Show current configuration                 |
+| `/credentials`       | View or update API key / base URL          |
+| `/tools`             | List all available tools                   |
+| `/mcp`               | Show MCP server connection status          |
+| `/stats`             | Show session statistics and token usage    |
+| `/save`              | Save current session to disk               |
+| `/sessions`          | List all saved sessions                    |
+| `/resume <id>`       | Resume a previously saved session          |
+| `/checkpoint`        | Create a checkpoint of the current session |
+| `/restore <id>`      | Restore a checkpoint                       |
+| `/undo`              | Undo the last file edit                    |
+
+---
+
+## 🔧 Custom Tools
+
+Drop a Python file into `<project>/.simhacli/tool/` and SimhaCLI picks it up automatically:
+
+```python
+from tools.base import Tool, ToolResult
+from pydantic import Field
+
+class MyTool(Tool):
+    name = "my_tool"
+    description = "Does something useful"
+
+    class Arguments(Tool.Arguments):
+        message: str = Field(description="Input message")
+
+    async def execute(self, args: Arguments) -> ToolResult:
+        return ToolResult.success_result(f"Got: {args.message}")
 ```
 
 ---
+
+## 🖥️ CLI Options
+
+```
+simhacli [OPTIONS] [PROMPT]
+
+Options:
+  --cwd PATH        Set working directory
+  --model TEXT      Override model name
+  --approval TEXT   Override approval policy
+  --help            Show this message and exit
+```
+
+---
+
+## 🔗 Links
+
+- **PyPI**: https://pypi.org/project/simhacli/
+- **GitHub**: https://github.com/naidu199/SimhaCLI
+- **Developer**: [Narasimha Naidu Korrapati on LinkedIn](https://www.linkedin.com/in/narasimhanaidukorrapati/)
+
+---
+
+<div align="center">
+
+Made with ❤️ by Narasimha Naidu Korrapati
+
+</div>
