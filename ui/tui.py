@@ -20,11 +20,14 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style as PTStyle
 from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.shortcuts import CompleteStyle
 
 from config.config import Config
 from tools.base import ToolConfirmation
 from utils.paths import display_path_rel_to_cwd
 import re
+from pathlib import Path
 
 from utils.text import truncate_text
 
@@ -115,6 +118,275 @@ def get_console() -> Console:
 
 
 # TUI class to handle terminal user interface
+
+_SLASH_COMMANDS: list[tuple[str, str]] = [
+    ("/help", "show available commands"),
+    ("/model", "change the active model"),
+    ("/config", "show current configuration"),
+    ("/clear", "clear conversation history"),
+    ("/stats", "show session statistics"),
+    ("/tools", "list available tools"),
+    ("/mcp", "show MCP server status"),
+    ("/approval", "change tool approval policy"),
+    ("/save", "save current session"),
+    ("/sessions", "list saved sessions"),
+    ("/resume", "restore a saved session"),
+    ("/checkpoint", "create a named checkpoint"),
+    ("/restore", "restore a checkpoint"),
+    ("/credentials", "manage API key / base URL"),
+    ("/creds", "manage API key / base URL"),
+    ("/undo", "undo last agent file edit"),
+    ("/exit", "exit the session"),
+    ("/quit", "exit the session"),
+]
+
+
+class _CommandCompleter(Completer):
+    """Completer that activates only when the input starts with '/'."""
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            return
+        for cmd, description in _SLASH_COMMANDS:
+            if cmd.startswith(text):
+                yield Completion(
+                    cmd,
+                    start_position=-len(text),
+                    display=cmd,
+                    display_meta=description,
+                )
+
+
+class _FilePathCompleter(Completer):
+    """Completer for @filename references with recursive search."""
+
+    # Directories to skip during recursive search
+    SKIP_DIRS = {
+        ".git",
+        ".svn",
+        ".hg",
+        "__pycache__",
+        ".pytest_cache",
+        "node_modules",
+        ".venv",
+        "venv",
+        ".env",
+        "env",
+        ".idea",
+        ".vscode",
+        ".tox",
+        ".mypy_cache",
+        ".ruff_cache",
+        "dist",
+        "build",
+        "*.egg-info",
+        ".simhacli",
+    }
+
+    def __init__(self, cwd: Path):
+        self.cwd = cwd
+        self._file_cache: list[tuple[str, Path]] | None = None
+        self._cache_time: float = 0
+
+    def _should_skip_dir(self, dir_name: str) -> bool:
+        """Check if directory should be skipped."""
+        if dir_name.startswith("."):
+            return True
+        for pattern in self.SKIP_DIRS:
+            if pattern.startswith("*"):
+                if dir_name.endswith(pattern[1:]):
+                    return True
+            elif dir_name == pattern:
+                return True
+        return False
+
+    def _build_file_cache(self) -> list[tuple[str, Path]]:
+        """Build cache of all files with relative paths."""
+        import time
+
+        current_time = time.time()
+
+        # Cache for 5 seconds
+        if self._file_cache and (current_time - self._cache_time) < 5:
+            return self._file_cache
+
+        files: list[tuple[str, Path]] = []
+
+        def scan_directory(dir_path: Path, prefix: str = ""):
+            try:
+                for entry in sorted(dir_path.iterdir()):
+                    if entry.name.startswith("."):
+                        continue
+
+                    rel_path = f"{prefix}{entry.name}" if prefix else entry.name
+
+                    if entry.is_dir():
+                        if not self._should_skip_dir(entry.name):
+                            # Add directory entry
+                            files.append((rel_path + "/", entry))
+                            # Recurse into subdirectory
+                            scan_directory(entry, rel_path + "/")
+                    else:
+                        files.append((rel_path, entry))
+            except (PermissionError, OSError):
+                pass
+
+        scan_directory(self.cwd)
+
+        self._file_cache = files
+        self._cache_time = current_time
+        return files
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+
+        # Find the last @ in the text
+        at_pos = text.rfind("@")
+        if at_pos == -1:
+            return
+
+        # Get the partial path after @
+        partial = text[at_pos + 1 :]
+
+        # Handle quoted paths
+        is_quoted = partial.startswith('"')
+        if is_quoted:
+            partial = partial[1:]
+
+        partial_lower = partial.lower()
+
+        # Build file cache
+        all_files = self._build_file_cache()
+
+        # Calculate start position (replace from @ onwards)
+        start_pos = -(len(text) - at_pos)
+
+        # If user typed a path ending with /, show contents of that directory
+        if partial and (partial.endswith("/") or partial.endswith("\\")):
+            dir_prefix = partial
+            for rel_path, entry in all_files:
+                if rel_path.startswith(dir_prefix) and rel_path != dir_prefix:
+                    # Show only immediate children
+                    remainder = rel_path[len(dir_prefix) :]
+                    if "/" not in remainder or (
+                        remainder.endswith("/") and remainder.count("/") == 1
+                    ):
+                        if entry.is_dir():
+                            display_name = remainder
+                            completion_text = f"@{rel_path}"
+                            meta = "directory"
+                        else:
+                            display_name = remainder
+                            completion_text = f"@{rel_path}"
+                            try:
+                                size = entry.stat().st_size
+                                if size < 1024:
+                                    meta = f"{size} bytes"
+                                elif size < 1024 * 1024:
+                                    meta = f"{size / 1024:.1f} KB"
+                                else:
+                                    meta = f"{size / (1024 * 1024):.1f} MB"
+                            except OSError:
+                                meta = "file"
+
+                        yield Completion(
+                            completion_text,
+                            start_position=start_pos,
+                            display=display_name,
+                            display_meta=meta,
+                        )
+            return
+
+        # Match files by:
+        # 1. Filename starts with partial
+        # 2. Any path segment starts with partial
+        # 3. Filename contains partial
+
+        matches: list[tuple[int, str, Path]] = []  # (score, rel_path, entry)
+
+        for rel_path, entry in all_files:
+            # Skip directories in normal search (only show if partial matches dir name)
+            is_dir = entry.is_dir()
+            path_lower = rel_path.lower()
+            name_lower = entry.name.lower()
+
+            score = 0
+
+            # Exact filename match
+            if name_lower == partial_lower:
+                score = 100
+            # Filename starts with partial
+            elif name_lower.startswith(partial_lower):
+                score = 80
+            # Path contains the partial as a complete segment
+            elif f"/{partial_lower}" in f"/{path_lower}":
+                score = 60
+            # Filename contains partial
+            elif partial_lower in name_lower:
+                score = 40
+            # Path contains partial anywhere
+            elif partial_lower in path_lower:
+                score = 20
+            else:
+                continue
+
+            # Bonus for shorter paths (prefer root-level files)
+            depth = rel_path.count("/")
+            score += max(0, 10 - depth)  # Up to +10 for root files
+
+            matches.append((score, rel_path, entry))
+
+        # Sort by score (highest first), then alphabetically
+        matches.sort(key=lambda x: (-x[0], x[1]))
+
+        # Limit results to avoid overwhelming the user
+        for score, rel_path, entry in matches[:20]:
+            if entry.is_dir():
+                display_name = rel_path
+                completion_text = f"@{rel_path}"
+                meta = "directory"
+            else:
+                display_name = rel_path
+                completion_text = f"@{rel_path}"
+                try:
+                    size = entry.stat().st_size
+                    if size < 1024:
+                        meta = f"{size} bytes"
+                    elif size < 1024 * 1024:
+                        meta = f"{size / 1024:.1f} KB"
+                    else:
+                        meta = f"{size / (1024 * 1024):.1f} MB"
+                except OSError:
+                    meta = "file"
+
+            yield Completion(
+                completion_text,
+                start_position=start_pos,
+                display=display_name,
+                display_meta=meta,
+            )
+
+
+class _CombinedCompleter(Completer):
+    """Combines slash command and file path completers."""
+
+    def __init__(self, cwd: Path):
+        self._command_completer = _CommandCompleter()
+        self._file_completer = _FilePathCompleter(cwd)
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+
+        # Check if we're completing a slash command
+        if text.startswith("/"):
+            yield from self._command_completer.get_completions(document, complete_event)
+
+        # Check if we're completing a @filename
+        if "@" in text:
+            yield from self._file_completer.get_completions(document, complete_event)
+
+
 class TUI:
     def __init__(
         self,
@@ -159,8 +431,10 @@ class TUI:
         def _(event):
             """
             Enter behavior:
-            - If buffer is empty or cursor is at end and line is empty: submit
-            - Otherwise: insert newline for multi-line input
+            - If buffer is empty or current line is empty: submit
+            - Otherwise: insert newline (allow user to continue typing)
+
+            To submit: Press Enter on an empty line, or use Escape+Enter
             """
             buffer = event.app.current_buffer
             text = buffer.text
@@ -169,14 +443,13 @@ class TUI:
             document = buffer.document
             current_line = document.current_line
 
-            # Submit if:
+            # Submit only if:
             # 1. Buffer is empty (just pressing enter without text)
             # 2. Current line is empty (double enter to submit)
-            # 3. Text doesn't contain newlines (single line - submit immediately)
-            if not text.strip() or current_line.strip() == "" or "\n" not in text:
+            if not text.strip() or current_line.strip() == "":
                 buffer.validate_and_handle()
             else:
-                # Insert newline for multi-line editing
+                # Insert newline - user can continue typing or press Enter on empty line to submit
                 buffer.insert_text("\n")
 
         @bindings.add(
@@ -196,6 +469,11 @@ class TUI:
             {
                 "prompt": "#FFD700 bold",  # Gold color for prompt
                 "input": "#FFFFFF",  # White for input text
+                # Completion dropdown
+                "completion-menu.completion": "bg:#1e1e2e #cccccc",
+                "completion-menu.completion.current": "bg:#4a4aaa bold #ffffff",
+                "completion-menu.meta.completion": "bg:#1e1e2e #666666",
+                "completion-menu.meta.completion.current": "bg:#4a4aaa #aaaaaa",
             }
         )
 
@@ -204,6 +482,9 @@ class TUI:
             style=style,
             multiline=True,
             prompt_continuation=lambda width, line_number, is_soft_wrap: "... ",
+            completer=_CombinedCompleter(self.cwd),
+            complete_style=CompleteStyle.MULTI_COLUMN,
+            complete_while_typing=True,
         )
 
     async def get_multiline_input(self, prompt_text: str = "> ") -> str | None:
@@ -230,6 +511,23 @@ class TUI:
             return None
         except EOFError:
             return None
+
+    def print_input_hint(self) -> None:
+        """Print hint text showing available input shortcuts."""
+        self.console.print(
+            Text.assemble(
+                ("  [", "dim"),
+                ("@", "cyan bold"),
+                (" attach file", "dim"),
+                (" | ", "dim"),
+                ("/", "cyan bold"),
+                (" commands", "dim"),
+                (" | ", "dim"),
+                ("q", "cyan bold"),
+                (" stop agent execution", "dim"),
+                ("]", "dim"),
+            )
+        )
 
     def print_welcome(self, title: str, lines: list[str]) -> None:
         body = "\n".join(lines)
@@ -374,6 +672,39 @@ class TUI:
         # Stop loading indicator if it's running
         self.stop_loading()
         self.console.print(f"[error]Error: {error_message}[/error]")
+
+    def display_file_attachments(self, attachments: list) -> None:
+        """Display visual feedback for attached files."""
+        if not attachments:
+            return
+
+        from rich.table import Table
+
+        table = Table(
+            show_header=True,
+            header_style="bold cyan",
+            border_style="dim",
+            box=box.SIMPLE,
+            padding=(0, 1),
+        )
+        table.add_column("File", style="path")
+        table.add_column("Lines", justify="right", style="dim")
+        table.add_column("Size", justify="right", style="dim")
+
+        for att in attachments:
+            lines = att.content.count("\n") + 1
+            size = len(att.content.encode("utf-8"))
+
+            if size < 1024:
+                size_str = f"{size} B"
+            elif size < 1024 * 1024:
+                size_str = f"{size / 1024:.1f} KB"
+            else:
+                size_str = f"{size / (1024 * 1024):.1f} MB"
+
+            table.add_row(att.relative_path, str(lines), size_str)
+
+        self.console.print(table)
 
     def start_request_timer(self) -> None:
         """Start the overall request timer."""
@@ -1059,6 +1390,7 @@ class TUI:
 
 - `/help` - Show this help
 - `/exit` or `/quit` - Exit the agent
+- `q` - Stop agent & return to input (Ctrl+C also works)
 - `/clear` - Clear conversation history
 - `/config` - Show current configuration
 - `/model <name>` - Change the model
@@ -1076,17 +1408,28 @@ class TUI:
 
 ## Input Controls
 
-- **Enter** - Send message (single line) or add new line (in multi-line mode)
-- **Enter on empty line** - Submit multi-line message
+- **Enter** - Add new line (continue typing)
+- **Enter on empty line** - Submit message
 - **Escape then Enter** - Force submit message
 - **Arrow keys** - Navigate within your text
 - **Home/End** - Jump to start/end of line
 - Multi-line paste is supported
+
+## File Attachments
+
+- **@filename** - Attach a file to your message
+  - `@app.py` - Attach app.py from current directory
+  - `@src/main.js` - Attach from subdirectory
+  - `@"file with spaces.txt"` - Attach file with spaces in name
+  - `@./relative/path.py` - Explicit relative path
+- File contents are included in the message for the AI to analyze
+- Max file size: 1MB (text files only)
 
 ## Tips
 
 - Just type your message to chat with the agent
 - The agent can read, write, and execute code
 - Some operations require approval (can be configured)
+- Use @filename to quickly share code context with the AI
 """
         self.console.print(Markdown(help_text))

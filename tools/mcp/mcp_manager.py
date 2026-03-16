@@ -1,9 +1,12 @@
 import asyncio
+import logging
 from typing import Any
 from config.config import Config
 from tools.mcp.client import MCPClient, MCPServerStatus
 from tools.mcp.mcp_tool import MCPTool
 from tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class MCPManager:
@@ -35,19 +38,19 @@ class MCPManager:
                 client.connect(),
                 timeout=client.config.startup_timeout_sec,
             )
-            for name, client in self._clients.items()
+            for client in self._clients.values()
         ]
 
-        await asyncio.gather(*connection_tasks, return_exceptions=True)
+        results = await asyncio.gather(*connection_tasks, return_exceptions=True)
 
-        # # Log connection results
-        # for idx, (name, client) in enumerate(self._clients.items()):
-        #     if isinstance(results[idx], Exception):
-        #         print(f"[MCP] Failed to connect to '{name}': {results[idx]}")
-        #     elif client.status == MCPServerStatus.CONNECTED:
-        #         print(f"[MCP] Connected to '{name}' with {len(client.tools)} tools")
-        #     else:
-        #         print(f"[MCP] Server '{name}' status: {client.status}")
+        # Log connection results
+        for (name, client), result in zip(self._clients.items(), results):
+            if isinstance(result, Exception):
+                logger.error(f"[MCP] Failed to connect to '{name}': {result}")
+            elif client.status == MCPServerStatus.CONNECTED:
+                logger.info(f"[MCP] Connected to '{name}' with {len(client.tools)} tools")
+            else:
+                logger.warning(f"[MCP] Server '{name}' status: {client.status}")
 
         self._initialized = True
 

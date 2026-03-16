@@ -399,6 +399,13 @@ def load_config(cwd: Path | None = None) -> Config:
         existing_config["api_key"] = api_key
         existing_config["api_base_url"] = api_base_url
 
+        # If user chose OpenRouter on first setup and no model is configured, default to openrouter/free
+        if api_base_url == DEFAULT_API_BASE_URL and not existing_config.get(
+            "model", {}
+        ).get("name"):
+            existing_config.setdefault("model", {})["name"] = "openrouter/free"
+            config_dict.setdefault("model", {})["name"] = "openrouter/free"
+
         # Save to system config file
         _save_config_toml(system_path, existing_config)
 

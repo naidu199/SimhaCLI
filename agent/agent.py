@@ -73,22 +73,15 @@ class Agent:
         parsed_args = parse_tool_call_arguments(tool_call.arguments or "")
 
         # --- Bad JSON ---
-        if "raw_arguments" in parsed_args:
-            raw = parsed_args["raw_arguments"]
+        if "error" in parsed_args or "raw_arguments" in parsed_args:
+            raw = parsed_args.get("raw_arguments", parsed_args.get("error", ""))
             error_result = ToolResult.error_result(
                 f"Invalid JSON in tool call arguments. Could not parse: {raw[:200]}. "
                 "Please provide valid JSON arguments."
             )
             events.append(
-                AgentEvent.tool_call_start(
-                    call_id=tool_call.call_id,
-                    name=tool_call.name,
-                    arguments=parsed_args,
-                )
-            )
-            events.append(
                 AgentEvent.tool_call_complete(
-                    tool_call.call_id, tool_call.name, error_result
+                    tool_call.call_id, tool_call.name or "(unknown)", error_result
                 )
             )
             return (
@@ -108,15 +101,8 @@ class Agent:
                 "Please specify the tool name in the function call."
             )
             events.append(
-                AgentEvent.tool_call_start(
-                    call_id=tool_call.call_id,
-                    name=tool_call.name,
-                    arguments=parsed_args,
-                )
-            )
-            events.append(
                 AgentEvent.tool_call_complete(
-                    tool_call.call_id, tool_call.name, error_result
+                    tool_call.call_id, "(missing)", error_result
                 )
             )
             return (
@@ -143,13 +129,32 @@ class Agent:
             args=parsed_args,
         )
 
-        result = await self.session.tool_registry.invoke(
-            tool_call.name,
-            parsed_args,
-            self.config.cwd,
-            self.session.approval_manager,
-            self.session.hook_system,
-        )
+        try:
+            result = await self.session.tool_registry.invoke(
+                tool_call.name,
+                parsed_args,
+                self.config.cwd,
+                self.session.approval_manager,
+                self.session.hook_system,
+            )
+        except Exception as e:
+            error_result = ToolResult.error_result(
+                f"Tool execution failed with error: {e}"
+            )
+            events.append(
+                AgentEvent.tool_call_complete(
+                    tool_call.call_id, tool_call.name, error_result
+                )
+            )
+            return (
+                events,
+                ToolResultMessage(
+                    tool_call_id=tool_call.call_id,
+                    content=error_result.to_model_output(),
+                    is_error=True,
+                ),
+                False,
+            )
 
         # --- Track file diffs for /undo ---
         if result.success and result.diff:

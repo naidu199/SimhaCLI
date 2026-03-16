@@ -16,6 +16,11 @@ from config.loader import (
     _mask_api_key,
 )
 from ui.tui import TUI, get_console
+from utils.file_attachments import (
+    parse_attachments,
+    format_message_with_attachments,
+    get_attachment_summary,
+)
 
 console = get_console()  # Initialize console for TUI output
 
@@ -47,8 +52,9 @@ class SimhaCLI:
                 f"CWD: {self.config.cwd}",
                 "Commands: /help, /exit, /config, /approval, /model, /credentials",
                 "",
-                "Input: Enter to send | paste for multi-line | Esc+Enter to force submit",
-                "Type /exit or /quit to exit.",
+                "Shortcuts: @attach file | /commands | q=stop agent",
+                "Input: Enter = new line | Enter on empty line = submit | Esc+Enter = force submit",
+                "Type /exit or /quit to exit. Type 'q' to stop agent and wait for input.",
             ],
         )
         try:
@@ -59,13 +65,20 @@ class SimhaCLI:
                 self.agent = agent
                 while True:
                     try:
+                        # Show input hint below the prompt
+                        self.tui.print_input_hint()
                         # Use multi-line input with better text editing support
                         # Enter to send, Ctrl+J for new line
                         user_input = await self.tui.get_multiline_input("> ")
                         if user_input is None:
-                            console.print("\n[dim]Use /exit or /quit to quit[/dim]")
+                            console.print("\n[dim]Use /exit, /quit, or 'q' to quit[/dim]")
                             continue
                         if not user_input:
+                            continue
+
+                        # Handle 'q' as stop agent / back to prompt (not exit)
+                        if user_input.strip().lower() == "q":
+                            console.print("[dim]Agent stopped. Waiting for input...[/dim]")
                             continue
 
                         if user_input.startswith("/"):
@@ -84,7 +97,7 @@ class SimhaCLI:
 
                         await self._process_message(user_input)
                     except KeyboardInterrupt:
-                        console.print("\n[dim]Use /exit or /quit to quit[/dim]")
+                        console.print("\n[dim]Use /exit, /quit, or 'q' to quit[/dim]")
                     except EOFError:
                         break
         except KeyboardInterrupt:
@@ -110,11 +123,23 @@ class SimhaCLI:
             print("Agent is not initialized.")
             return None
 
+        # Parse @filename attachments from user input
+        _, attachments = parse_attachments(message, self.config.cwd)
+        
+        # Display file attachment feedback if files were found
+        if attachments:
+            self.tui.display_file_attachments(attachments)
+        
+        # Format message with file contents for the LLM
+        formatted_message = format_message_with_attachments(
+            message, attachments, self.config.cwd
+        )
+
         response_content = ""
         text_started = False
         thinking_active = False
         self.tui.start_request_timer()
-        async for event in self.agent.run(message):
+        async for event in self.agent.run(formatted_message):
             # print(event)
 
             # ── Thinking (reasoning tokens) ──────────────────────
