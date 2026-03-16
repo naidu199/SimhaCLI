@@ -136,6 +136,7 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/credentials", "manage API key / base URL"),
     ("/creds", "manage API key / base URL"),
     ("/undo", "undo last agent file edit"),
+    ("/init", "analyze project & generate instruction files"),
     ("/exit", "exit the session"),
     ("/quit", "exit the session"),
 ]
@@ -422,46 +423,23 @@ class TUI:
     def _create_prompt_session(self) -> PromptSession:
         """Create a prompt session with custom key bindings for multi-line input."""
         # Key bindings:
-        # - Enter on empty line or Alt+Enter submits
-        # - Enter with text adds newline (for multi-line editing)
-        # - Escape then Enter also submits
+        # - Enter: submit if buffer has text, else do nothing
+        # - Escape then Enter: insert newline (for multi-line input)
         bindings = KeyBindings()
 
         @bindings.add(Keys.Enter)
         def _(event):
-            """
-            Enter behavior:
-            - If buffer is empty or current line is empty: submit
-            - Otherwise: insert newline (allow user to continue typing)
-
-            To submit: Press Enter on an empty line, or use Escape+Enter
-            """
+            """Enter: submit message if text is present."""
             buffer = event.app.current_buffer
             text = buffer.text
 
-            # Get current line
-            document = buffer.document
-            current_line = document.current_line
-
-            # Submit only if:
-            # 1. Buffer is empty (just pressing enter without text)
-            # 2. Current line is empty (double enter to submit)
-            if not text.strip() or current_line.strip() == "":
+            if text.strip():
                 buffer.validate_and_handle()
-            else:
-                # Insert newline - user can continue typing or press Enter on empty line to submit
-                buffer.insert_text("\n")
+            # If buffer is empty, do nothing - user must type something or use /exit
 
-        @bindings.add(
-            Keys.Escape, Keys.Enter
-        )  # Escape then Enter (Alt+Enter equivalent)
+        @bindings.add(Keys.Escape, Keys.Enter)  # Escape then Enter
         def _(event):
-            """Force submit with Escape+Enter."""
-            event.app.current_buffer.validate_and_handle()
-
-        @bindings.add("c-j")  # Ctrl+J - common alternative for newline
-        def _(event):
-            """Insert newline with Ctrl+J."""
+            """Esc+Enter: Insert newline for multi-line messages."""
             event.app.current_buffer.insert_text("\n")
 
         # Custom style for the prompt
@@ -524,7 +502,10 @@ class TUI:
                 (" commands", "dim"),
                 (" | ", "dim"),
                 ("q", "cyan bold"),
-                (" stop agent execution", "dim"),
+                (" stop", "dim"),
+                (" | ", "dim"),
+                ("Esc+Enter", "cyan bold"),
+                (" newline", "dim"),
                 ("]", "dim"),
             )
         )
@@ -1405,12 +1386,12 @@ class TUI:
 - `/sessions` - List saved sessions
 - `/resume <session_id>` - Resume a saved session
 - `/undo` - Undo the last file edit made by the agent
+- `/init` - Analyze project and generate AGENTS.md / SIMHACLI.md
 
 ## Input Controls
 
-- **Enter** - Add new line (continue typing)
-- **Enter on empty line** - Submit message
-- **Escape then Enter** - Force submit message
+- **Enter** - Submit message (when text is present)
+- **Escape then Enter** - Insert new line (for multi-line messages)
 - **Arrow keys** - Navigate within your text
 - **Home/End** - Jump to start/end of line
 - Multi-line paste is supported
