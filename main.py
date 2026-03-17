@@ -72,14 +72,18 @@ class SimhaCLI:
                         # Enter to send, Ctrl+J for new line
                         user_input = await self.tui.get_multiline_input("> ")
                         if user_input is None:
-                            console.print("\n[dim]Use /exit, /quit, or 'q' to quit[/dim]")
+                            console.print(
+                                "\n[dim]Use /exit, /quit, or 'q' to quit[/dim]"
+                            )
                             continue
                         if not user_input:
                             continue
 
                         # Handle 'q' as stop agent / back to prompt (not exit)
                         if user_input.strip().lower() == "q":
-                            console.print("[dim]Agent stopped. Waiting for input...[/dim]")
+                            console.print(
+                                "[dim]Agent stopped. Waiting for input...[/dim]"
+                            )
                             continue
 
                         if user_input.startswith("/"):
@@ -126,11 +130,11 @@ class SimhaCLI:
 
         # Parse @filename attachments from user input
         _, attachments = parse_attachments(message, self.config.cwd)
-        
+
         # Display file attachment feedback if files were found
         if attachments:
             self.tui.display_file_attachments(attachments)
-        
+
         # Format message with file contents for the LLM
         formatted_message = format_message_with_attachments(
             message, attachments, self.config.cwd
@@ -324,326 +328,8 @@ class SimhaCLI:
                 "[dim]LLM client will use new credentials on next request[/dim]"
             )
 
-    def _analyze_project(self, project_dir: Path) -> dict:
-        """Analyze a project directory and return structured info."""
-        info = {
-            "name": project_dir.name,
-            "path": str(project_dir),
-            "languages": [],
-            "frameworks": [],
-            "build_commands": [],
-            "test_commands": [],
-            "structure": [],
-            "key_files": [],
-            "conventions": [],
-            "git": False,
-            "description": "",
-        }
-
-        # Detect git
-        if (project_dir / ".git").exists():
-            info["git"] = True
-
-        # Scan top-level structure
-        ignore_dirs = {
-            ".git", "__pycache__", "node_modules", "venv", ".venv",
-            "env", ".env", "dist", "build", ".tox", ".mypy_cache",
-            ".pytest_cache", "egg-info", ".simhacli", ".vscode",
-            ".idea", "target", "out", "bin", "obj",
-        }
-        for item in sorted(project_dir.iterdir()):
-            name = item.name
-            if name.startswith(".") and name not in (".github", ".gitignore"):
-                continue
-            if item.is_dir() and name.lower() in ignore_dirs:
-                continue
-            suffix = "/" if item.is_dir() else ""
-            info["structure"].append(f"{name}{suffix}")
-
-        # Detect languages and frameworks by key files
-        ext_counts = {}
-        for f in project_dir.rglob("*"):
-            if f.is_file() and not any(
-                p in str(f) for p in ignore_dirs
-            ):
-                ext = f.suffix.lower()
-                if ext:
-                    ext_counts[ext] = ext_counts.get(ext, 0) + 1
-
-        lang_map = {
-            ".py": "Python", ".js": "JavaScript", ".ts": "TypeScript",
-            ".jsx": "JavaScript (React)", ".tsx": "TypeScript (React)",
-            ".go": "Go", ".rs": "Rust", ".java": "Java", ".kt": "Kotlin",
-            ".rb": "Ruby", ".php": "PHP", ".cs": "C#", ".cpp": "C++",
-            ".c": "C", ".swift": "Swift", ".dart": "Dart",
-        }
-        for ext, lang in lang_map.items():
-            if ext in ext_counts and ext_counts[ext] > 0:
-                if lang not in info["languages"]:
-                    info["languages"].append(lang)
-
-        # Detect frameworks & build/test commands from config files
-        pkg_json = project_dir / "package.json"
-        if pkg_json.exists():
-            try:
-                pkg = json.loads(pkg_json.read_text(encoding="utf-8"))
-                info["description"] = pkg.get("description", "")
-                scripts = pkg.get("scripts", {})
-                deps = {
-                    **pkg.get("dependencies", {}),
-                    **pkg.get("devDependencies", {}),
-                }
-                if "react" in deps:
-                    info["frameworks"].append("React")
-                if "next" in deps:
-                    info["frameworks"].append("Next.js")
-                if "vue" in deps:
-                    info["frameworks"].append("Vue")
-                if "express" in deps:
-                    info["frameworks"].append("Express")
-                if "nestjs" in deps or "@nestjs/core" in deps:
-                    info["frameworks"].append("NestJS")
-                if "build" in scripts:
-                    info["build_commands"].append(f"npm run build")
-                if "test" in scripts:
-                    info["test_commands"].append(f"npm test")
-                if "lint" in scripts:
-                    info["build_commands"].append(f"npm run lint")
-                if "dev" in scripts:
-                    info["build_commands"].append(f"npm run dev")
-            except Exception:
-                pass
-
-        pyproject = project_dir / "pyproject.toml"
-        if pyproject.exists():
-            try:
-                content = pyproject.read_text(encoding="utf-8")
-                if "pytest" in content:
-                    info["test_commands"].append("pytest")
-                    info["frameworks"].append("pytest")
-                if "ruff" in content:
-                    info["build_commands"].append("ruff check .")
-                if "mypy" in content:
-                    info["build_commands"].append("mypy .")
-                if "setuptools" in content or "poetry" in content or "hatch" in content:
-                    info["build_commands"].append("pip install -e .")
-                if "django" in content.lower():
-                    info["frameworks"].append("Django")
-                if "flask" in content.lower():
-                    info["frameworks"].append("Flask")
-                if "fastapi" in content.lower():
-                    info["frameworks"].append("FastAPI")
-            except Exception:
-                pass
-
-        setup_py = project_dir / "setup.py"
-        if setup_py.exists():
-            info["build_commands"].append("pip install -e .")
-
-        requirements = project_dir / "requirements.txt"
-        if requirements.exists():
-            try:
-                reqs = requirements.read_text(encoding="utf-8").lower()
-                if "django" in reqs:
-                    info["frameworks"].append("Django")
-                if "flask" in reqs:
-                    info["frameworks"].append("Flask")
-                if "fastapi" in reqs:
-                    info["frameworks"].append("FastAPI")
-                if "pytest" in reqs:
-                    info["test_commands"].append("pytest")
-            except Exception:
-                pass
-
-        makefile = project_dir / "Makefile"
-        if makefile.exists():
-            info["build_commands"].append("make")
-
-        cargo_toml = project_dir / "Cargo.toml"
-        if cargo_toml.exists():
-            info["build_commands"].append("cargo build")
-            info["test_commands"].append("cargo test")
-            info["frameworks"].append("Cargo")
-
-        go_mod = project_dir / "go.mod"
-        if go_mod.exists():
-            info["build_commands"].append("go build ./...")
-            info["test_commands"].append("go test ./...")
-
-        # Detect key files
-        key_file_names = [
-            "README.md", "README.rst", "CONTRIBUTING.md",
-            "LICENSE", "LICENSE.md", "Dockerfile",
-            "docker-compose.yml", "docker-compose.yaml",
-            ".env.example", "Makefile", "Taskfile.yml",
-            "AGENTS.md", "CLAUDE.md", ".cursorrules",
-        ]
-        for name in key_file_names:
-            if (project_dir / name).exists():
-                info["key_files"].append(name)
-
-        # Read README for description if not set
-        if not info["description"]:
-            readme = project_dir / "README.md"
-            if not readme.exists():
-                readme = project_dir / "README.rst"
-            if readme.exists():
-                try:
-                    content = readme.read_text(encoding="utf-8")
-                    lines = content.strip().split("\n")
-                    # First non-heading, non-empty line as description
-                    for line in lines:
-                        stripped = line.strip().strip("#").strip()
-                        if stripped and len(stripped) > 10:
-                            info["description"] = stripped[:200]
-                            break
-                except Exception:
-                    pass
-
-        # Deduplicate
-        info["languages"] = list(dict.fromkeys(info["languages"]))
-        info["frameworks"] = list(dict.fromkeys(info["frameworks"]))
-        info["build_commands"] = list(dict.fromkeys(info["build_commands"]))
-        info["test_commands"] = list(dict.fromkeys(info["test_commands"]))
-
-        return info
-
-    def _generate_agents_md(self, info: dict) -> str:
-        """Generate AGENTS.md content from project analysis."""
-        lines = [f"# AGENTS.md — {info['name']}", ""]
-
-        if info["description"]:
-            lines.append(f"> {info['description']}")
-            lines.append("")
-
-        # Build & Test
-        if info["build_commands"] or info["test_commands"]:
-            lines.append("## Build & Test Commands")
-            lines.append("")
-            if info["build_commands"]:
-                for cmd in info["build_commands"]:
-                    lines.append(f"- `{cmd}`")
-            if info["test_commands"]:
-                for cmd in info["test_commands"]:
-                    lines.append(f"- `{cmd}`")
-            lines.append("")
-
-        # Architecture
-        lines.append("## Architecture")
-        lines.append("")
-        if info["languages"]:
-            lines.append(f"**Languages:** {', '.join(info['languages'])}")
-        if info["frameworks"]:
-            lines.append(f"**Frameworks:** {', '.join(info['frameworks'])}")
-        lines.append("")
-
-        lines.append("### Project Structure")
-        lines.append("")
-        lines.append("```")
-        for entry in info["structure"][:30]:
-            lines.append(entry)
-        lines.append("```")
-        lines.append("")
-
-        # Conventions
-        lines.append("## Conventions")
-        lines.append("")
-        lines.append("- Follow existing code style and patterns")
-        lines.append("- Write tests for new functionality")
-        if info["git"]:
-            lines.append("- Use meaningful commit messages")
-        lines.append("- Keep changes focused and minimal")
-        lines.append("")
-
-        # Key files
-        if info["key_files"]:
-            lines.append("## Key Files")
-            lines.append("")
-            for f in info["key_files"]:
-                lines.append(f"- `{f}`")
-            lines.append("")
-
-        return "\n".join(lines)
-
-    def _generate_simhacli_md(self, info: dict) -> str:
-        """Generate SIMHACLI.md content from project analysis."""
-        lines = [f"# SIMHACLI.md — {info['name']}", ""]
-
-        if info["description"]:
-            lines.append(f"> {info['description']}")
-            lines.append("")
-
-        lines.append("## Project Overview")
-        lines.append("")
-        if info["languages"]:
-            lines.append(f"- **Languages:** {', '.join(info['languages'])}")
-        if info["frameworks"]:
-            lines.append(f"- **Frameworks:** {', '.join(info['frameworks'])}")
-        lines.append(f"- **Path:** `{info['path']}`")
-        if info["git"]:
-            lines.append("- **Version Control:** Git")
-        lines.append("")
-
-        # Commands
-        if info["build_commands"] or info["test_commands"]:
-            lines.append("## Commands")
-            lines.append("")
-            if info["build_commands"]:
-                lines.append("### Build / Lint")
-                lines.append("")
-                for cmd in info["build_commands"]:
-                    lines.append(f"```sh")
-                    lines.append(cmd)
-                    lines.append("```")
-                    lines.append("")
-            if info["test_commands"]:
-                lines.append("### Test")
-                lines.append("")
-                for cmd in info["test_commands"]:
-                    lines.append(f"```sh")
-                    lines.append(cmd)
-                    lines.append("```")
-                    lines.append("")
-
-        # Structure
-        lines.append("## Project Structure")
-        lines.append("")
-        lines.append("```")
-        for entry in info["structure"][:30]:
-            lines.append(entry)
-        lines.append("```")
-        lines.append("")
-
-        # Agent Instructions
-        lines.append("## Agent Instructions")
-        lines.append("")
-        lines.append("- Follow the existing code style and conventions in this project")
-        lines.append("- Read files before modifying them to understand context")
-        lines.append("- Prefer editing existing files over creating new ones")
-        lines.append("- Run tests after making changes when possible")
-        if info["git"]:
-            lines.append("- Do not commit unless explicitly asked")
-        lines.append("- Keep changes minimal and focused on the task")
-        lines.append("")
-
-        # Key files
-        if info["key_files"]:
-            lines.append("## Key Files")
-            lines.append("")
-            for f in info["key_files"]:
-                lines.append(f"- `{f}`")
-            lines.append("")
-
-        # Pitfalls / Notes
-        lines.append("## Notes")
-        lines.append("")
-        lines.append("<!-- Add project-specific pitfalls, environment setup notes, or tips here -->")
-        lines.append("")
-
-        return "\n".join(lines)
-
     async def _handle_init_command(self, cmd_args: str) -> None:
-        """Handle /init command — analyze project and generate instruction files."""
+        """Handle /init command — use the AI agent to deeply analyze the project and generate instruction files."""
         from rich.prompt import Prompt
         from rich.panel import Panel
 
@@ -652,55 +338,19 @@ class SimhaCLI:
         console.print()
         console.print(
             Panel(
-                f"[bold]Analyzing project:[/bold] {project_dir}",
-                title="[bold yellow]/init — Project Analyzer[/bold yellow]",
+                f"[bold]Project:[/bold] {project_dir}",
+                title="[bold yellow]/init — AI Project Analyzer[/bold yellow]",
                 border_style="yellow",
             )
         )
-
-        # Analyze project
-        info = self._analyze_project(project_dir)
-
-        # Show summary
-        summary_lines = []
-        if info["languages"]:
-            summary_lines.append(f"[bold]Languages:[/bold] {', '.join(info['languages'])}")
-        if info["frameworks"]:
-            summary_lines.append(f"[bold]Frameworks:[/bold] {', '.join(info['frameworks'])}")
-        if info["build_commands"]:
-            summary_lines.append(f"[bold]Build:[/bold] {', '.join(info['build_commands'])}")
-        if info["test_commands"]:
-            summary_lines.append(f"[bold]Test:[/bold] {', '.join(info['test_commands'])}")
-        summary_lines.append(f"[bold]Structure:[/bold] {len(info['structure'])} top-level entries")
-        if info["git"]:
-            summary_lines.append("[bold]Git:[/bold] Yes")
-
-        console.print(
-            Panel(
-                "\n".join(summary_lines),
-                title="[bold]Project Summary[/bold]",
-                border_style="cyan",
-            )
-        )
-
-        # Check for existing files
-        agents_md_exists = (project_dir / "AGENTS.md").exists()
-        simhacli_md_exists = (project_dir / "SIMHACLI.md").exists()
-        existing = []
-        if agents_md_exists:
-            existing.append("AGENTS.md")
-        if simhacli_md_exists:
-            existing.append("SIMHACLI.md")
-        if existing:
-            console.print(
-                f"[yellow]Existing files found: {', '.join(existing)} (will be overwritten if selected)[/yellow]"
-            )
 
         # Ask user which files to generate
         console.print()
         console.print("[bold]Which file(s) would you like to generate?[/bold]")
         console.print("  [cyan]1[/cyan] — AGENTS.md  (standard AI agent instructions)")
-        console.print("  [cyan]2[/cyan] — SIMHACLI.md (SimhaCLI-specific project config)")
+        console.print(
+            "  [cyan]2[/cyan] — SIMHACLI.md (SimhaCLI-specific project config)"
+        )
         console.print("  [cyan]3[/cyan] — Both")
         console.print()
 
@@ -710,31 +360,81 @@ class SimhaCLI:
             default="3",
         )
 
-        generated = []
-
+        file_targets = []
         if choice in ("1", "3"):
-            content = self._generate_agents_md(info)
-            path = project_dir / "AGENTS.md"
-            path.write_text(content, encoding="utf-8")
-            generated.append(str(path))
-            console.print(f"[green]Created {path}[/green]")
-
+            file_targets.append("AGENTS.md")
         if choice in ("2", "3"):
-            content = self._generate_simhacli_md(info)
-            path = project_dir / "SIMHACLI.md"
-            path.write_text(content, encoding="utf-8")
-            generated.append(str(path))
-            console.print(f"[green]Created {path}[/green]")
+            file_targets.append("SIMHACLI.md")
+
+        target_desc = " and ".join(file_targets)
+
+        # Check for existing files
+        existing = [f for f in file_targets if (project_dir / f).exists()]
+        if existing:
+            console.print(
+                f"[yellow]Existing files found: {', '.join(existing)} (will be overwritten)[/yellow]"
+            )
 
         console.print()
         console.print(
-            Panel(
-                "\n".join(f"[green]{f}[/green]" for f in generated),
-                title="[bold green]Files Generated[/bold green]",
-                border_style="green",
-            )
+            f"[dim]The agent will now deeply analyze the project and generate {target_desc}...[/dim]"
         )
-        console.print("[dim]Tip: Edit the generated files to add project-specific details.[/dim]")
+
+        # Build the prompt and send through the normal agent pipeline
+        init_prompt = self._build_init_prompt(project_dir, file_targets)
+        await self._process_message(init_prompt)
+
+    def _build_init_prompt(self, project_dir: Path, file_targets: list[str]) -> str:
+        """Build the prompt that instructs the agent to use its tools to analyze and generate files."""
+
+        target_instructions = []
+        for target in file_targets:
+            if target == "AGENTS.md":
+                target_instructions.append(f"""
+**{target}** — Write a comprehensive AI agent instruction file containing:
+- Project description and purpose (based on what you read)
+- Build, lint, test, and run commands (discovered from config files)
+- Architecture overview: key modules/packages, how they connect, data flow, entry points
+- Code conventions and patterns actually used in the project
+- Key files and directories with brief descriptions
+- Any pitfalls or important setup steps you discover""")
+            elif target == "SIMHACLI.md":
+                target_instructions.append(f"""
+**{target}** — Write a SimhaCLI-specific project instruction file containing:
+- Project overview: what the project does, its purpose
+- Languages, frameworks, and key dependencies
+- Build, test, lint, and run commands
+- Architecture: modules, packages, entry points, how components interact
+- Code conventions: naming patterns, file organization, import style, error handling
+- Key files with descriptions
+- Development workflow notes and environment setup
+- Any project-specific rules the agent should follow""")
+
+        targets_block = "\n".join(target_instructions)
+
+        return f"""You are running the /init command. Your job is to **deeply analyze this project** and generate high-quality, project-specific instruction file(s).
+
+**Project directory:** {project_dir}
+
+## Step-by-step instructions:
+
+1. **Explore the project structure** — Use `list_dir` to see the top-level layout. Use `glob` to find source files, config files, and key directories.
+2. **Read config files** — Read README.md, package.json, pyproject.toml, setup.py, setup.cfg, Cargo.toml, go.mod, Makefile, Dockerfile, requirements.txt, tsconfig.json, and any other config files that exist.
+3. **Read source code** — Read the main entry points, key modules, and representative source files to understand the actual architecture, patterns, and conventions used.
+4. **Check for existing instruction files** — Read any existing AGENTS.md, CLAUDE.md, SIMHACLI.md, .cursorrules, .github/copilot-instructions.md if they exist, and incorporate their useful content.
+5. **Write the file(s)** — Use `write_file` to write the following file(s) to the project root:
+
+{targets_block}
+
+## Critical rules:
+- **You MUST use your tools** (list_dir, glob, read_file, grep) to explore the project. Do NOT guess or generate generic content.
+- **Be specific.** Include actual file paths, actual command names, actual module names, actual patterns you observed in the code.
+- **Be concise but comprehensive.** Focus on information that helps an AI agent be immediately productive in this codebase.
+- **Do NOT include generic advice** like "write clean code" or "follow best practices". Only include project-specific information you discovered.
+- **Do NOT include obvious instructions** like "never include API keys in code".
+- **Write the file(s) using `write_file`.** Do not just output the content as text.
+
+Begin by exploring the project structure."""
 
     async def _handle_command(self, command: str) -> bool:
         cmd = command.lower().strip()
