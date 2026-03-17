@@ -11,6 +11,7 @@ def get_system_prompt(
     config: Config,
     user_memory: str | None = None,
     tools: list[Tool] | None = None,
+    git_context_str: str | None = None,
 ) -> str:
     parts = []
 
@@ -18,6 +19,10 @@ def get_system_prompt(
     parts.append(_get_identity_section(config))
     # Environment
     parts.append(_get_environment_section(config))
+
+    # Git context (injected at startup)
+    if git_context_str:
+        parts.append(git_context_str)
 
     if tools:
         parts.append(_get_tool_guidelines_section(tools))

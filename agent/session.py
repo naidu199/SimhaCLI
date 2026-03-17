@@ -14,6 +14,7 @@ from safety.approval import ApprovalManager
 from tools.discovery import ToolDiscoveryManager
 from tools.mcp.mcp_manager import MCPManager
 from tools.registry import create_default_registry
+from utils.git import get_git_context, format_git_context
 
 
 class Session:
@@ -43,10 +44,16 @@ class Session:
     async def initialize(self) -> None:
         await self.mcp_manager.initialize()
         self.mcp_manager.register_tools(self.tool_registry)
+
+        # Gather git context from the working directory
+        git_ctx = get_git_context(self.config.cwd)
+        git_context_str = format_git_context(git_ctx) if git_ctx else None
+
         self.context_manager = ContextManager(
             config=self.config,
             user_memory=self._load_memory(),
             tools=self.tool_registry.get_tools(),
+            git_context_str=git_context_str,
         )
         self.discovery_manager.discover_all()
         return self

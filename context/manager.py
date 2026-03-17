@@ -40,11 +40,14 @@ class ContextManager:
         config: Config,
         tools: list[Tool] | None,
         user_memory: str | None = None,
+        git_context_str: str | None = None,
     ) -> None:
+        self._git_context_str = git_context_str
         self._system_prompt = get_system_prompt(
             config=config,
             user_memory=user_memory,
             tools=tools,
+            git_context_str=git_context_str,
         )
         self._config = config
         self._model_name = config.model.name
@@ -171,6 +174,7 @@ I'll continue with the REMAINING tasks only, starting from where we left off."""
             config=self._config,
             user_memory=user_memory,
             tools=tools,
+            git_context_str=self._git_context_str,
         )
         # Update model name tracking
         self._model_name = self._config.model.name
