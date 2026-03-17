@@ -51,7 +51,7 @@ class SimhaCLI:
                 "Current Usage::",
                 f"Model: {self.config.model.name}",
                 f"CWD: {self.config.cwd}",
-                "Commands: /help, /exit, /config, /approval, /model, /credentials, /init",
+                "Commands: /help, /exit, /config, /approval, /model, /credentials, /permissions, /init",
                 "",
                 "Shortcuts: @attach file | /commands | q=stop agent",
                 "Input: Enter = submit | Esc+Enter = new line",
@@ -64,6 +64,35 @@ class SimhaCLI:
                 confirmation_callback=self.tui.handle_confirmation,
             ) as agent:
                 self.agent = agent
+                
+                # Setup tool name getter for completions
+                def get_tool_names():
+                    if self.agent and self.agent.session:
+                        tools = self.agent.session.tool_registry.get_all_registered_tools()
+                        return sorted([t.name for t in tools])
+                    return []
+                
+                def get_tool_status():
+                    """Get the current permission status of all tools."""
+                    if not self.agent or not self.agent.session:
+                        return {}
+                    
+                    tools = self.agent.session.tool_registry.get_all_registered_tools()
+                    denied_set = set(self.config.denied_tools) if self.config.denied_tools else set()
+                    allowed_set = set(self.config.allowed_tools) if self.config.allowed_tools else None
+                    
+                    status = {}
+                    for tool in tools:
+                        if tool.name in denied_set:
+                            status[tool.name] = "denied"
+                        elif allowed_set is not None and tool.name not in allowed_set:
+                            status[tool.name] = "denied"
+                        else:
+                            status[tool.name] = "allowed"
+                    return status
+                
+                self.tui.set_tool_getter(get_tool_names, get_tool_status)
+                
                 while True:
                     try:
                         # Show input hint below the prompt
@@ -390,16 +419,19 @@ class SimhaCLI:
         target_instructions = []
         for target in file_targets:
             if target == "AGENTS.md":
-                target_instructions.append(f"""
+                target_instructions.append(
+                    f"""
 **{target}** — Write a comprehensive AI agent instruction file containing:
 - Project description and purpose (based on what you read)
 - Build, lint, test, and run commands (discovered from config files)
 - Architecture overview: key modules/packages, how they connect, data flow, entry points
 - Code conventions and patterns actually used in the project
 - Key files and directories with brief descriptions
-- Any pitfalls or important setup steps you discover""")
+- Any pitfalls or important setup steps you discover"""
+                )
             elif target == "SIMHACLI.md":
-                target_instructions.append(f"""
+                target_instructions.append(
+                    f"""
 **{target}** — Write a SimhaCLI-specific project instruction file containing:
 - Project overview: what the project does, its purpose
 - Languages, frameworks, and key dependencies
@@ -408,7 +440,8 @@ class SimhaCLI:
 - Code conventions: naming patterns, file organization, import style, error handling
 - Key files with descriptions
 - Development workflow notes and environment setup
-- Any project-specific rules the agent should follow""")
+- Any project-specific rules the agent should follow"""
+                )
 
         targets_block = "\n".join(target_instructions)
 
@@ -435,6 +468,135 @@ class SimhaCLI:
 - **Write the file(s) using `write_file`.** Do not just output the content as text.
 
 Begin by exploring the project structure."""
+
+    async def _handle_permissions_command(self, cmd_args: str) -> None:
+        """Handle /permissions command to view and toggle tool permissions."""
+        from rich.table import Table
+        from rich.prompt import Prompt
+        from rich.panel import Panel
+
+        registry = self.agent.session.tool_registry
+        all_tools = registry.get_all_registered_tools()
+        allowed_set = (
+            set(self.config.allowed_tools) if self.config.allowed_tools else None
+        )
+        denied_set = (
+            set(self.config.denied_tools) if self.config.denied_tools else set()
+        )
+
+        if cmd_args == "":
+            # Display current permissions table
+            table = Table(
+                title="Tool Permissions", border_style="cyan", show_lines=False
+            )
+            table.add_column("#", style="dim", width=4)
+            table.add_column("Tool", style="bold")
+            table.add_column("Kind", style="dim")
+            table.add_column("Status", justify="center")
+
+            sorted_tools = sorted(all_tools, key=lambda t: t.name)
+            for i, tool in enumerate(sorted_tools, 1):
+                if tool.name in denied_set:
+                    status = "[red]denied[/red]"
+                elif allowed_set is not None and tool.name not in allowed_set:
+                    status = "[red]denied[/red]"
+                else:
+                    status = "[green]allowed[/green]"
+                kind = tool.kind.value if hasattr(tool, "kind") else "unknown"
+                table.add_row(str(i), tool.name, kind, status)
+
+            console.print()
+            console.print(table)
+            console.print()
+            
+            # Show available tool names for allow/deny commands
+            tool_names = [t.name for t in sorted_tools]
+            console.print("[dim]Available tools:[/dim]")
+            console.print(f"[dim]  {', '.join(tool_names)}[/dim]")
+            console.print()
+            console.print("[dim]Usage:[/dim]")
+            console.print("[dim]  /permissions allow <tool_name>  — Allow a tool[/dim]")
+            console.print("[dim]  /permissions deny <tool_name>   — Deny a tool[/dim]")
+            console.print(
+                "[dim]  /permissions reset              — Reset to all allowed[/dim]"
+            )
+
+        elif cmd_args.startswith("allow "):
+            tool_name = cmd_args[6:].strip()
+            tool = registry.get(tool_name) or self._find_tool_in_all(
+                all_tools, tool_name
+            )
+            if not tool:
+                available = [t.name for t in sorted(all_tools, key=lambda t: t.name)]
+                console.print(f"[error]Unknown tool: {tool_name}[/error]")
+                console.print(f"[dim]Available: {', '.join(available)}[/dim]")
+                return
+
+            # Remove from denied list
+            if tool.name in denied_set:
+                self.config.denied_tools.remove(tool.name)
+            # Add to allowed list if allowlist mode is active
+            if (
+                self.config.allowed_tools is not None
+                and tool.name not in self.config.allowed_tools
+            ):
+                self.config.allowed_tools.append(tool.name)
+
+            console.print(f"[green]Allowed:[/green] {tool.name}")
+            self._refresh_tools_after_permission_change()
+
+        elif cmd_args.startswith("deny "):
+            tool_name = cmd_args[5:].strip()
+            tool = registry.get(tool_name) or self._find_tool_in_all(
+                all_tools, tool_name
+            )
+            if not tool:
+                available = [t.name for t in sorted(all_tools, key=lambda t: t.name)]
+                console.print(f"[error]Unknown tool: {tool_name}[/error]")
+                console.print(f"[dim]Available: {', '.join(available)}[/dim]")
+                return
+
+            # Add to denied list
+            if tool.name not in self.config.denied_tools:
+                self.config.denied_tools.append(tool.name)
+            # Remove from allowed list if allowlist mode is active
+            if (
+                self.config.allowed_tools is not None
+                and tool.name in self.config.allowed_tools
+            ):
+                self.config.allowed_tools.remove(tool.name)
+
+            console.print(f"[red]Denied:[/red] {tool.name}")
+            self._refresh_tools_after_permission_change()
+
+        elif cmd_args == "reset":
+            self.config.allowed_tools = None
+            self.config.denied_tools = []
+            console.print("[green]All tool permissions reset to allowed.[/green]")
+            self._refresh_tools_after_permission_change()
+
+        else:
+            console.print(f"[error]Unknown subcommand: {cmd_args}[/error]")
+            tool_names = [t.name for t in sorted(all_tools, key=lambda t: t.name)]
+            console.print(
+                f"[dim]Usage: /permissions [allow <tool_name>|deny <tool_name>|reset][/dim]"
+            )
+            console.print(f"[dim]Available tools: {', '.join(tool_names)}[/dim]")
+
+    def _find_tool_in_all(self, all_tools: list, name: str):
+        """Find a tool by name in the unfiltered tool list."""
+        for tool in all_tools:
+            if tool.name == name:
+                return tool
+        return None
+
+    def _refresh_tools_after_permission_change(self) -> None:
+        """Refresh the system prompt after tool permissions change."""
+        if self.agent and self.agent.session:
+            tools = self.agent.session.tool_registry.get_tools()
+            self.agent.session.context_manager.refresh_system_prompt(tools=tools)
+            active = len(tools)
+            console.print(f"[dim]Active tools: {active}[/dim]")
 
     async def _handle_command(self, command: str) -> bool:
         cmd = command.lower().strip()
@@ -655,6 +817,8 @@ Begin by exploring the project structure."""
             await self._handle_credentials_command(cmd_args)
         elif cmd_name == "/init":
             await self._handle_init_command(cmd_args)
+        elif cmd_name == "/permissions":
+            await self._handle_permissions_command(cmd_args)
         elif cmd_name == "/undo":
             if not self.agent._undo_stack:
                 console.print("[warning]Nothing to undo.[/warning]")

@@ -105,6 +105,10 @@ class Config(BaseModel):
         None,
         description="If set, only these tools will be available to the agent",
     )
+    denied_tools: list[str] = Field(
+        default_factory=list,
+        description="Tools explicitly denied from use by the agent",
+    )
 
     debug: bool = False
 

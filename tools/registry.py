@@ -48,6 +48,11 @@ class ToolRegistry:
 
         return None
 
+    def get_all_registered_tools(self) -> list[Tool]:
+        """Return every registered tool regardless of allow/deny filters."""
+        tools: list[Tool] = list(self._tools.values()) + list(self._mcp_tools.values())
+        return tools
+
     def get_tools(self) -> list[Tool]:
         tools: list[Tool] = []
 
@@ -60,6 +65,10 @@ class ToolRegistry:
         if self.config.allowed_tools:
             allowed_set = set(self.config.allowed_tools)
             tools = [t for t in tools if t.name in allowed_set]
+
+        if self.config.denied_tools:
+            denied_set = set(self.config.denied_tools)
+            tools = [t for t in tools if t.name not in denied_set]
 
         return tools
 

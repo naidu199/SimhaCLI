@@ -137,6 +137,7 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/creds", "manage API key / base URL"),
     ("/undo", "undo last agent file edit"),
     ("/init", "analyze project & generate instruction files"),
+    ("/permissions", "show current tool permissions"),
     ("/exit", "exit the session"),
     ("/quit", "exit the session"),
 ]
@@ -145,10 +146,71 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
 class _CommandCompleter(Completer):
     """Completer that activates only when the input starts with '/'."""
 
+    def __init__(self, get_tools=None, get_tool_status=None):
+        self._get_tools = get_tools
+        self._get_tool_status = get_tool_status  # Returns dict of tool_name -> status
+
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
         if not text.startswith("/"):
             return
+        
+        # Handle /permissions subcommands
+        if text.startswith("/permissions"):
+            parts = text.split()
+            
+            if len(parts) == 1:
+                # "/permissions" or "/permissions "
+                if text.endswith(" "):
+                    # Suggest subcommands
+                    subcommands = ["allow", "deny", "reset"]
+                    for sub in subcommands:
+                        yield Completion(sub, start_position=0, display_meta="subcommand")
+                    return
+                # Else fall through to command completion logic below
+            
+            elif len(parts) == 2:
+                # "/permissions allow" or "/permissions allow "
+                subcommand = parts[1]
+                
+                if text.endswith(" "):
+                    # Suggest tools if allow/deny
+                    if subcommand in ["allow", "deny"]:
+                        if self._get_tools:
+                            tools = self._get_tools()
+                            if self._get_tool_status:
+                                status = self._get_tool_status()
+                                for tool_name in tools:
+                                    meta = status.get(tool_name, "tool")
+                                    yield Completion(tool_name, start_position=0, display_meta=meta)
+                            else:
+                                for tool_name in tools:
+                                    yield Completion(tool_name, start_position=0, display_meta="tool")
+                    return
+                
+                # Suggest matching subcommands
+                subcommands = ["allow", "deny", "reset"]
+                for sub in subcommands:
+                    if sub.startswith(subcommand):
+                        yield Completion(sub, start_position=-len(subcommand), display_meta="subcommand")
+                return
+            
+            elif len(parts) == 3:
+                # "/permissions allow read_file"
+                subcommand = parts[1]
+                tool_prefix = parts[2]
+                
+                if subcommand in ["allow", "deny"]:
+                    if self._get_tools:
+                        tools = self._get_tools()
+                        status = self._get_tool_status() if self._get_tool_status else {}
+                        for tool_name in tools:
+                            if tool_name.startswith(tool_prefix):
+                                meta = status.get(tool_name, "tool")
+                                yield Completion(tool_name, start_position=-len(tool_prefix), display_meta=meta)
+                return
+
+        # Default command completion
         for cmd, description in _SLASH_COMMANDS:
             if cmd.startswith(text):
                 yield Completion(
@@ -372,8 +434,8 @@ class _FilePathCompleter(Completer):
 class _CombinedCompleter(Completer):
     """Combines slash command and file path completers."""
 
-    def __init__(self, cwd: Path):
-        self._command_completer = _CommandCompleter()
+    def __init__(self, cwd: Path, get_tools=None, get_tool_status=None):
+        self._command_completer = _CommandCompleter(get_tools, get_tool_status)
         self._file_completer = _FilePathCompleter(cwd)
 
     def get_completions(self, document, complete_event):
@@ -404,6 +466,8 @@ class TUI:
         self._status: Status | None = None
         self._live: Live | None = None
         self._last_render_len = 0
+        self._get_tools = None  # Function to get tool names for completion
+        self._get_tool_status = None  # Function to get tool status (allowed/denied)
 
         # Thinking display state
         self._thinking_live: Live | None = None
@@ -418,6 +482,13 @@ class TUI:
         self._working_live: Live | None = None
 
         # Setup multi-line input with prompt_toolkit
+        self._prompt_session = self._create_prompt_session()
+
+    def set_tool_getter(self, get_tools, get_tool_status=None):
+        """Set the function that returns tool names for completion."""
+        self._get_tools = get_tools
+        self._get_tool_status = get_tool_status
+        # Recreate prompt session with updated completer
         self._prompt_session = self._create_prompt_session()
 
     def _create_prompt_session(self) -> PromptSession:
@@ -460,7 +531,7 @@ class TUI:
             style=style,
             multiline=True,
             prompt_continuation=lambda width, line_number, is_soft_wrap: "... ",
-            completer=_CombinedCompleter(self.cwd),
+            completer=_CombinedCompleter(self.cwd, self._get_tools, self._get_tool_status),
             complete_style=CompleteStyle.MULTI_COLUMN,
             complete_while_typing=True,
         )
@@ -1386,6 +1457,7 @@ class TUI:
 - `/sessions` - List saved sessions
 - `/resume <session_id>` - Resume a saved session
 - `/undo` - Undo the last file edit made by the agent
+- `/permissions` - View and toggle tool permissions
 - `/init` - Analyze project and generate AGENTS.md / SIMHACLI.md
 
 ## Input Controls
