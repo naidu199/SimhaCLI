@@ -41,6 +41,14 @@ SimhaCLI🦁  complete in 14.2s  8821 tokens (8120 prompt + 701 completion)
 - **Context compression** — auto-summarises history when the context window fills up
 - **Loop detection** — detects and breaks repetitive behaviour automatically
 - **Truncation recovery** — handles `finish_reason: length` gracefully, continues or retries
+- **Git context awareness** — system prompts include current branch, status, and recent commits
+
+### 📎 File Attachments
+
+- **Attach files to prompts** — use `@attach file.txt` or `@attach path/to/file.py`
+- **Multiple file support** — attach multiple files in a single prompt
+- **Smart summary** — shows attachment count and total size
+- **Auto-inclusion** — file contents are automatically included in the model context
 
 ### 💭 Thinking Display
 
@@ -82,6 +90,16 @@ SimhaCLI🦁  complete in 14.2s  8821 tokens (8120 prompt + 701 completion)
 - Configurable approval policy — from `on_request` to fully autonomous `yolo`
 - Shell command allowlist/blocklist
 - Environment variable masking (API keys, tokens, secrets never leaked to the model)
+- **Tool permissions** — `/permissions` command to manage tool access (allow/deny specific tools)
+- **Allowed/denied tools** — configure `allowed_tools` and `denied_tools` in config.toml
+
+### 🚀 Project Initialization
+
+- **`/init` command** — deeply analyzes project structure and generates:
+  - `AGENTS.md` — coding conventions and project guidelines for AI agents
+  - `SIMHACLI.md` — SimhaCLI-specific project context and instructions
+- **Smart detection** — identifies languages, frameworks, and project patterns
+- **Context-aware** — future sessions automatically load these instruction files
 
 ---
 
@@ -231,6 +249,8 @@ Type any of these during an interactive session:
 | `/checkpoint`        | Create a checkpoint of the current session |
 | `/restore <id>`      | Restore a checkpoint                       |
 | `/undo`              | Undo the last file edit                    |
+| `/init`              | Analyze project and generate AGENTS.md and SIMHACLI.md files |
+| `/permissions`       | Manage tool access permissions             |
 
 ---
 
@@ -266,6 +286,29 @@ Options:
   --approval TEXT   Override approval policy
   --help            Show this message and exit
 ```
+
+---
+
+## 📝 Changelog
+
+### v1.2.0 (March 17, 2026)
+
+- **New `/init` Command**: Deeply analyzes projects and generates `AGENTS.md` and `SIMHACLI.md` instruction files for better context-aware coding
+- **New `/permissions` Command**: Manage tool access permissions directly from the CLI
+- **File Attachment Support**: Attach files to prompts using `@attach file` syntax
+- **Git Context Integration**: System prompts now include git context (branch, status) for enhanced understanding
+- **Enhanced Error Handling**: Improved error handling and logging throughout the agent
+- **Tool Permission Status**: TUI now displays tool permission status (allowed/denied)
+
+### v1.1.4 (March 16, 2026)
+
+- Initial public release on PyPI
+- 16 built-in tools for file operations, shell commands, web access, and sub-agents
+- MCP (Model Context Protocol) support
+- Session management with save/resume/checkpoint/restore
+- Configurable approval policies
+- Thinking display with live reasoning visualization
+- Token tracking and performance metrics
 
 ---
 

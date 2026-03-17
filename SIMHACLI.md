@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**SimhaCLI** is a Python-based, terminal-native AI coding agent (v1.1.4). It connects to OpenAI-compatible LLM APIs (primarily OpenRouter) and provides an agentic loop that autonomously reads code, executes tools, manages sessions, and streams thinking — all inside the terminal. Created and maintained by **Narasimha Naidu Korrapati**.
+**SimhaCLI** is a Python-based, terminal-native AI coding agent (v1.2.0). It connects to OpenAI-compatible LLM APIs (primarily OpenRouter) and provides an agentic loop that autonomously reads code, executes tools, manages sessions, and streams thinking — all inside the terminal. Created and maintained by **Narasimha Naidu Korrapati**.
 
 ---
 
