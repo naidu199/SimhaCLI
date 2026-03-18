@@ -65,10 +65,46 @@ def _parse_toml(path: Path) -> dict:
         )
 
 
+def _ensure_gitignore(cwd: Path) -> None:
+    """Ensure .gitignore exists and includes .simhacli."""
+    gitignore_path = cwd / ".gitignore"
+    simhacli_entry = ".simhacli"
+
+    if not gitignore_path.exists():
+        # Create .gitignore with .simhacli entry
+        gitignore_path.write_text(
+            "# SimhaCLI config (contains API keys, do not commit)\n"
+            ".simhacli/\n",
+            encoding="utf-8",
+        )
+        logger.info(f"Created .gitignore with .simhacli entry at {gitignore_path}")
+        return
+
+    # Check if .simhacli is already in .gitignore
+    content = gitignore_path.read_text(encoding="utf-8")
+    lines = content.split("\n")
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped == simhacli_entry or stripped == ".simhacli/" or stripped == "/.simhacli":
+            return  # Already exists
+
+    # Append .simhacli to existing .gitignore
+    if content and not content.endswith("\n"):
+        content += "\n"
+    content += "\n# SimhaCLI config (contains API keys, do not commit)\n"
+    content += ".simhacli/\n"
+    gitignore_path.write_text(content, encoding="utf-8")
+    logger.info(f"Added .simhacli to .gitignore at {gitignore_path}")
+
+
 def _initialize_project_dir(cwd: Path) -> None:
     """Initialize .simhacli directory structure if it doesn't exist."""
     curdir = cwd.resolve()
     agent_dir = curdir / ".simhacli"
+
+    # Ensure .gitignore includes .simhacli
+    _ensure_gitignore(curdir)
 
     # Create .simhacli directory if it doesn't exist
     if not agent_dir.exists():
@@ -157,6 +193,47 @@ name = "mistralai/devstral-2512:free"
 # MCP SERVERS (Model Context Protocol)
 # ───────────────────────────────────────────────────────────────────────
 # Connect to external tools and services via MCP protocol
+# Uncomment and configure the servers you need, then restart SimhaCLI
+#
+# *** SECURITY: This file is inside .simhacli/ which is gitignored ***
+# *** Your API keys and tokens will NOT be pushed to GitHub ***
+# *** Never copy real keys into other files or share them ***
+
+# GitHub MCP - Create repos, manage PRs, issues
+# [mcp_servers.github]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-github"]
+# env = { GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
+# Get token at: https://github.com/settings/tokens (scopes: repo, workflow, gist)
+
+# PostgreSQL MCP - Query and manage PostgreSQL databases
+# [mcp_servers.postgresql]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-postgres"]
+# env = { DATABASE_URL = "postgresql://postgres:password@db.abcdef.supabase.co:5432/postgres" }
+
+# Supabase MCP - Manage Supabase projects, databases, edge functions
+# [mcp_servers.supabase]
+# command = "npx"
+# args = ["-y", "@supabase/mcp-server-supabase"]
+# env = {
+#   SUPABASE_PROJECT_REF = "abcdefghijklmnop",
+#   SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xxx",
+#   SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.yyy"
+# }
+# Get keys at: https://supabase.com/dashboard
+
+# Vercel MCP - Deploy to Vercel, manage projects
+# [mcp_servers.vercel]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-vercel"]
+# env = { VERCEL_TOKEN = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
+# Get token at: https://vercel.com/account/tokens
+
+# Playwright MCP - Browser automation and E2E testing
+# [mcp_servers.playwright]
+# command = "npx"
+# args = ["-y", "@playwright/mcp"]
 
 # Example: Filesystem access server
 # [mcp_servers.filesystem]
@@ -233,6 +310,74 @@ def _save_config_toml(config_path: Path, config_dict: dict[str, Any]) -> None:
         tomli_w.dump(serializable, f)
 
     logger.info(f"Saved config to {config_path}")
+
+
+def _update_config_value(config_path: Path, section: str, key: str, value: str) -> bool:
+    """Update a single value in a TOML file while preserving comments and structure.
+    
+    Returns True if the value was updated, False if the file structure wasn't found.
+    """
+    if not config_path.exists():
+        return False
+
+    content = config_path.read_text(encoding="utf-8")
+    lines = content.split("\n")
+    
+    in_section = False
+    updated = False
+    section_pattern = f"[{section}]"
+    
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        
+        # Check if we're entering the target section
+        if stripped == section_pattern:
+            in_section = True
+            continue
+        
+        # Check if we've entered a different section (exit target section)
+        if stripped.startswith("[") and stripped.endswith("]") and in_section:
+            in_section = False
+            continue
+        
+        # If we're in the target section, look for the key
+        if in_section and stripped.startswith(f"{key}"):
+            # Check if it's a commented key like "# name = ..."
+            if stripped.startswith("#"):
+                # Uncomment and update the value
+                lines[i] = f'{key} = "{value}"'
+                updated = True
+                break
+            elif stripped.startswith(f"{key} =") or stripped.startswith(f'{key}="'):
+                # Update existing uncommented key
+                # Preserve the indentation
+                indent = line[:len(line) - len(line.lstrip())]
+                lines[i] = f'{indent}{key} = "{value}"'
+                updated = True
+                break
+    
+    if updated:
+        config_path.write_text("\n".join(lines), encoding="utf-8")
+        logger.info(f"Updated {section}.{key} in {config_path}")
+    
+    return updated
+
+
+def _add_commented_section(config_path: Path, section: str, commented_lines: list[str]) -> None:
+    """Add a commented-out section to the config file if it doesn't already exist."""
+    if not config_path.exists():
+        return
+
+    content = config_path.read_text(encoding="utf-8")
+    
+    # Check if section already exists (commented or not)
+    if f"[{section}]" in content or f"# [{section}]" in content:
+        return
+    
+    # Append the commented section
+    content += "\n" + "\n".join(commented_lines) + "\n"
+    config_path.write_text(content, encoding="utf-8")
+    logger.info(f"Added commented [{section}] section to {config_path}")
 
 
 def _mask_api_key(api_key: str) -> str:

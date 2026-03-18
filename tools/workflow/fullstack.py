@@ -55,12 +55,12 @@ class CreateGitHubRepoStep(WorkflowStep):
 Set up GitHub MCP (recommended):
 1. Create a Personal Access Token at: https://github.com/settings/tokens
    - Select scopes: repo, workflow, gist
-2. Add to .simhacli/config.toml:
+2. Add to .simhacli/config.toml (file is gitignored, keys are safe):
 
 [mcp_servers.github]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-github"]
-env = { GITHUB_TOKEN = "ghp_your_token_here" }
+env = { GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
 
 3. Restart SimhaCLI
 
@@ -200,24 +200,24 @@ class SetupDatabaseStep(WorkflowStep):
 
 Set up PostgreSQL MCP (recommended):
 1. Get your PostgreSQL connection string
-2. Add to .simhacli/config.toml:
+2. Add to .simhacli/config.toml (file is gitignored, keys are safe):
 
 [mcp_servers.postgresql]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-postgres"]
-env = { DATABASE_URL = "postgresql://user:pass@host:5432/dbname" }
+env = { DATABASE_URL = "postgresql://postgres:password@db.abcdef.supabase.co:5432/postgres" }
 
 Or set up Supabase MCP:
 1. Get project ref and keys from: https://supabase.com/dashboard
-2. Add to .simhacli/config.toml:
+2. Add to .simhacli/config.toml (file is gitignored, keys are safe):
 
 [mcp_servers.supabase]
 command = "npx"
 args = ["-y", "@supabase/mcp-server-supabase"]
 env = { 
-  SUPABASE_PROJECT_REF = "your_project_ref",
-  SUPABASE_ANON_KEY = "your_anon_key",
-  SUPABASE_SERVICE_ROLE_KEY = "your_service_key"
+  SUPABASE_PROJECT_REF = "abcdefghijklmnop",
+  SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xxx",
+  SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.yyy"
 }
 
 3. Restart SimhaCLI
@@ -541,12 +541,12 @@ class DeployToVercelStep(WorkflowStep):
 
 Set up Vercel MCP for automatic deployment:
 1. Get your token at: https://vercel.com/account/tokens
-2. Add to .simhacli/config.toml:
+2. Add to .simhacli/config.toml (file is gitignored, keys are safe):
 
 [mcp_servers.vercel]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-vercel"]
-env = { VERCEL_TOKEN = "your_token_here" }
+env = { VERCEL_TOKEN = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
 
 3. Restart SimhaCLI
 

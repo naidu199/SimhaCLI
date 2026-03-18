@@ -373,12 +373,14 @@ When users ask to set up, build, push, deploy, or test their project, use the wo
 
 When a required MCP server is missing, provide the user with setup instructions. Always suggest MCP setup first, with CLI/manual as fallback.
 
+**Note:** The config file is at `.simhacli/config.toml` which is inside the `.simhacli/` folder. This folder is automatically gitignored, so API keys and tokens stored there are safe and will NOT be pushed to GitHub.
+
 ### GitHub MCP
 ```toml
 [mcp_servers.github]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-github"]
-env = { GITHUB_TOKEN = "ghp_your_token_here" }
+env = { GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
 ```
 Token: https://github.com/settings/tokens (scopes: repo, workflow, gist)
 
@@ -387,7 +389,7 @@ Token: https://github.com/settings/tokens (scopes: repo, workflow, gist)
 [mcp_servers.postgresql]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-postgres"]
-env = { DATABASE_URL = "postgresql://user:pass@host:5432/dbname" }
+env = { DATABASE_URL = "postgresql://postgres:password@db.abcdef.supabase.co:5432/postgres" }
 ```
 
 ### Supabase MCP
@@ -396,9 +398,9 @@ env = { DATABASE_URL = "postgresql://user:pass@host:5432/dbname" }
 command = "npx"
 args = ["-y", "@supabase/mcp-server-supabase"]
 env = { 
-  SUPABASE_PROJECT_REF = "your_project_ref",
-  SUPABASE_ANON_KEY = "your_anon_key",
-  SUPABASE_SERVICE_ROLE_KEY = "your_service_key"
+  SUPABASE_PROJECT_REF = "abcdefghijklmnop",
+  SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xxx",
+  SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.yyy"
 }
 ```
 Keys: https://supabase.com/dashboard
@@ -408,7 +410,7 @@ Keys: https://supabase.com/dashboard
 [mcp_servers.vercel]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-vercel"]
-env = { VERCEL_TOKEN = "your_token_here" }
+env = { VERCEL_TOKEN = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
 ```
 Token: https://vercel.com/account/tokens
 

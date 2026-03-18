@@ -772,25 +772,35 @@ Begin by exploring the project structure."""
                         "[dim]System prompt updated with new model info[/dim]"
                     )
 
-                # Save to project config file
+                # Save to project config file (preserving comments)
                 project_config_path = self.config.cwd / ".simhacli" / "config.toml"
                 if project_config_path.parent.exists():
                     try:
-                        # Load existing project config
-                        existing_config = {}
-                        if project_config_path.is_file():
-                            existing_config = _parse_toml(project_config_path)
+                        from config.loader import _update_config_value
 
-                        # Update model name
-                        if "model" not in existing_config:
-                            existing_config["model"] = {}
-                        existing_config["model"]["name"] = cmd_args
-
-                        # Save back to file
-                        _save_config_toml(project_config_path, existing_config)
-                        console.print(
-                            f"[dim]Model saved to project config: {project_config_path}[/dim]"
+                        # Update model name while preserving comments
+                        updated = _update_config_value(
+                            project_config_path, "model", "name", cmd_args
                         )
+
+                        if updated:
+                            console.print(
+                                f"[dim]Model saved to project config: {project_config_path}[/dim]"
+                            )
+                        else:
+                            # If update failed (e.g., no [model] section), fall back to full save
+                            existing_config = {}
+                            if project_config_path.is_file():
+                                existing_config = _parse_toml(project_config_path)
+
+                            if "model" not in existing_config:
+                                existing_config["model"] = {}
+                            existing_config["model"]["name"] = cmd_args
+
+                            _save_config_toml(project_config_path, existing_config)
+                            console.print(
+                                f"[dim]Model saved to project config: {project_config_path}[/dim]"
+                            )
                     except Exception as e:
                         console.print(
                             f"[warning]Could not save to project config: {e}[/warning]"
