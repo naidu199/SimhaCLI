@@ -84,20 +84,21 @@ SimhaCLI🦁  complete in 14.2s  8821 tokens (8120 prompt + 701 completion)
 
 End-to-end automation with a single command or natural language:
 
-| Action | Description |
-|--------|-------------|
-| `fullstack` | GitHub → Push → Install → Env → Build → README → DB → Deploy → Tests |
-| `github` | Create a GitHub repository |
-| `push` | Commit and push code changes |
-| `install_deps` | Auto-detect and install dependencies (npm, yarn, pip, cargo, etc.) |
-| `env_setup` | Create .env file from template or with custom variables |
-| `build` | Auto-detect and run build commands |
-| `readme` | Generate README.md for the project |
-| `database` | Set up PostgreSQL or Supabase database |
-| `deploy` | Deploy to Vercel |
-| `tests` | Run Playwright E2E tests |
+| Action         | Description                                                          |
+| -------------- | -------------------------------------------------------------------- |
+| `fullstack`    | GitHub → Push → Install → Env → Build → README → DB → Deploy → Tests |
+| `github`       | Create a GitHub repository                                           |
+| `push`         | Commit and push code changes                                         |
+| `install_deps` | Auto-detect and install dependencies (npm, yarn, pip, cargo, etc.)   |
+| `env_setup`    | Create .env file from template or with custom variables              |
+| `build`        | Auto-detect and run build commands                                   |
+| `readme`       | Generate README.md for the project                                   |
+| `database`     | Set up PostgreSQL or Supabase database                               |
+| `deploy`       | Deploy to Vercel                                                     |
+| `tests`        | Run Playwright E2E tests                                             |
 
 **Just ask in natural language:**
+
 - "Deploy my app to Vercel"
 - "Create a GitHub repo and push my code"
 - "Set up the database for my project"
@@ -257,26 +258,26 @@ enabled = true
 
 Type any of these during an interactive session:
 
-| Command              | Description                                |
-| -------------------- | ------------------------------------------ |
-| `/help`              | Show all commands                          |
-| `/exit` / `/quit`    | Exit SimhaCLI                              |
-| `/clear`             | Clear conversation history                 |
-| `/model <name>`      | Switch model (saves to project config)     |
-| `/approval <policy>` | Change approval policy                     |
-| `/config`            | Show current configuration                 |
-| `/credentials`       | View or update API key / base URL          |
-| `/tools`             | List all available tools                   |
-| `/mcp`               | Show MCP server connection status          |
-| `/stats`             | Show session statistics and token usage    |
-| `/save`              | Save current session to disk               |
-| `/sessions`          | List all saved sessions                    |
-| `/resume <id>`       | Resume a previously saved session          |
-| `/checkpoint`        | Create a checkpoint of the current session |
-| `/restore <id>`      | Restore a checkpoint                       |
-| `/undo`              | Undo the last file edit                    |
+| Command              | Description                                                  |
+| -------------------- | ------------------------------------------------------------ |
+| `/help`              | Show all commands                                            |
+| `/exit` / `/quit`    | Exit SimhaCLI                                                |
+| `/clear`             | Clear conversation history                                   |
+| `/model <name>`      | Switch model (saves to project config)                       |
+| `/approval <policy>` | Change approval policy                                       |
+| `/config`            | Show current configuration                                   |
+| `/credentials`       | View or update API key / base URL                            |
+| `/tools`             | List all available tools                                     |
+| `/mcp`               | Show MCP server connection status                            |
+| `/stats`             | Show session statistics and token usage                      |
+| `/save`              | Save current session to disk                                 |
+| `/sessions`          | List all saved sessions                                      |
+| `/resume <id>`       | Resume a previously saved session                            |
+| `/checkpoint`        | Create a checkpoint of the current session                   |
+| `/restore <id>`      | Restore a checkpoint                                         |
+| `/undo`              | Undo the last file edit                                      |
 | `/init`              | Analyze project and generate AGENTS.md and SIMHACLI.md files |
-| `/permissions`       | Manage tool access permissions             |
+| `/permissions`       | Manage tool access permissions                               |
 
 ---
 
@@ -325,7 +326,6 @@ Options:
 - **Smart Auto-Detection**: Package managers, build commands, and project types detected automatically
 - **MCP Setup Guide**: Comprehensive `MCP_SETUP_GUIDE.md` with step-by-step instructions
 - **Preserved Config Comments**: Changing model via `/model` no longer strips comments from config.toml
-- **Auto .gitignore**: `.simhacli/` folder automatically added to .gitignore to protect API keys
 - **Enhanced Error Messages**: All MCP errors now show setup instructions with config snippets
 - **Security Improvements**: Placeholder values in configs, .gitignore protection for sensitive data
 
