@@ -34,7 +34,7 @@ Create repos, manage pull requests, issues, and workflows.
 [mcp_servers.github]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-github"]
-env = { GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
+env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
 enabled = true
 ```
 
@@ -77,36 +77,29 @@ Manage Supabase projects, databases, edge functions, and auth.
 ```toml
 [mcp_servers.supabase]
 command = "npx"
-args = ["-y", "@supabase/mcp-server-supabase"]
-env = {
-  SUPABASE_PROJECT_REF = "abcdefghijklmnop",
-  SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xxx",
-  SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.yyy"
-}
+args = [
+  "-y",
+  "@supabase/mcp-server-supabase",
+  "--access-token", "sbp_xxxxxxxxxxxx",
+  "--project-ref", "abcdefghijklmnop"
+]
 enabled = true
 ```
 
 ---
 
-### Vercel MCP
+### Vercel Deployment
 
-Deploy applications to Vercel and manage projects.
+Deploy applications to Vercel using CLI (no MCP required).
 
-**Get your token:**
+**Setup:**
 
-1. Go to https://vercel.com/account/tokens
-2. Click "Create"
-3. Copy the token
-
-**Config:**
-
-```toml
-[mcp_servers.vercel]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-vercel"]
-env = { VERCEL_TOKEN = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
-enabled = true
+```bash
+npm install -g vercel
+vercel login
 ```
+
+When prompted, provide your Vercel token from: https://vercel.com/account/tokens
 
 ---
 
@@ -220,7 +213,7 @@ npx @playwright/mcp
 
 ### "GitHub MCP server not connected"
 
-- Add your `GITHUB_TOKEN` to the config
+- Add your `GITHUB_PERSONAL_ACCESS_TOKEN` to the config
 - Uncomment the `[mcp_servers.github]` section
 - Ensure the token has `repo` scope
 

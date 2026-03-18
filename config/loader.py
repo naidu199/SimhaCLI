@@ -73,8 +73,7 @@ def _ensure_gitignore(cwd: Path) -> None:
     if not gitignore_path.exists():
         # Create .gitignore with .simhacli entry
         gitignore_path.write_text(
-            "# SimhaCLI config (contains API keys, do not commit)\n"
-            ".simhacli/\n",
+            "# SimhaCLI config (contains API keys, do not commit)\n" ".simhacli/\n",
             encoding="utf-8",
         )
         logger.info(f"Created .gitignore with .simhacli entry at {gitignore_path}")
@@ -86,7 +85,11 @@ def _ensure_gitignore(cwd: Path) -> None:
 
     for line in lines:
         stripped = line.strip()
-        if stripped == simhacli_entry or stripped == ".simhacli/" or stripped == "/.simhacli":
+        if (
+            stripped == simhacli_entry
+            or stripped == ".simhacli/"
+            or stripped == "/.simhacli"
+        ):
             return  # Already exists
 
     # Append .simhacli to existing .gitignore
@@ -128,15 +131,15 @@ def _initialize_project_dir(cwd: Path) -> None:
 # ───────────────────────────────────────────────────────────────────────
 # Override which AI model to use for this project
 [model]
-name = "mistralai/devstral-2512:free"
+name = "openrouter/free"
 # temperature = 1.0              # Creativity level (0.0-2.0, higher = more creative)
 # context_window = 256000        # Maximum context size
 
 # Popular free models on OpenRouter:
-# - "mistralai/mistral-7b-instruct:free"
-# - "google/gemma-3-27b-it:free"
-# - "meta-llama/llama-3.2-3b-instruct:free"
-# - "microsoft/phi-3-mini-128k-instruct:free"
+# - "openrouter/free" (access to multiple free models)
+# - "openrouter/hunter-alpha" (specialized in code generation Recommended for coding tasks)
+# - "openrouter/healer-alpha" (specialized in debugging and fixing code issues Recommended for debugging tasks)
+
 
 # ───────────────────────────────────────────────────────────────────────
 # PROJECT INSTRUCTIONS
@@ -203,7 +206,7 @@ name = "mistralai/devstral-2512:free"
 # [mcp_servers.github]
 # command = "npx"
 # args = ["-y", "@modelcontextprotocol/server-github"]
-# env = { GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
+# env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
 # Get token at: https://github.com/settings/tokens (scopes: repo, workflow, gist)
 
 # PostgreSQL MCP - Query and manage PostgreSQL databases
@@ -215,30 +218,32 @@ name = "mistralai/devstral-2512:free"
 # Supabase MCP - Manage Supabase projects, databases, edge functions
 # [mcp_servers.supabase]
 # command = "npx"
-# args = ["-y", "@supabase/mcp-server-supabase"]
-# env = {
-#   SUPABASE_PROJECT_REF = "abcdefghijklmnop",
-#   SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xxx",
-#   SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.yyy"
-# }
-# Get keys at: https://supabase.com/dashboard
+# args = [
+#   "-y",
+#   "@supabase/mcp-server-supabase",
+#   "--access-token", "sbp_xxxxxxxxxxxx",
+#   "--project-ref", "abcdefghijklmnop"
+# ]
+# Get access token at: https://supabase.com/dashboard → Account → Access Tokens
+# Get project ref from: https://supabase.com/dashboard → Project Settings → General
 
 # Vercel MCP - Deploy to Vercel, manage projects
 # [mcp_servers.vercel]
 # command = "npx"
-# args = ["-y", "@modelcontextprotocol/server-vercel"]
+# args = ["-y", "vercel-mcp-adapter"]
 # env = { VERCEL_TOKEN = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
 # Get token at: https://vercel.com/account/tokens
+# After configuring, restart SimhaCLI and authorize access when prompted in browser
 
 # Playwright MCP - Browser automation and E2E testing
 # [mcp_servers.playwright]
 # command = "npx"
 # args = ["-y", "@playwright/mcp"]
 
-# Example: Filesystem access server
+# Filesystem MCP - Access project files (uses your project directory automatically)
 # [mcp_servers.filesystem]
 # command = "npx"
-# args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/project"]
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "{cwd}"]
 # enabled = true
 
 # Example: HTTP-based MCP server
@@ -256,6 +261,7 @@ name = "mistralai/devstral-2512:free"
 # For more information, visit: https://github.com/narasimhanaidukorrapati/simhacli
 # ═══════════════════════════════════════════════════════════════════════
 """
+            config_content = config_content.replace("{cwd}", str(curdir))
             config_file.write_text(config_content, encoding="utf-8")
             logger.info(f"Created project config template at {config_file}")
 
@@ -314,7 +320,7 @@ def _save_config_toml(config_path: Path, config_dict: dict[str, Any]) -> None:
 
 def _update_config_value(config_path: Path, section: str, key: str, value: str) -> bool:
     """Update a single value in a TOML file while preserving comments and structure.
-    
+
     Returns True if the value was updated, False if the file structure wasn't found.
     """
     if not config_path.exists():
@@ -322,24 +328,24 @@ def _update_config_value(config_path: Path, section: str, key: str, value: str) 
 
     content = config_path.read_text(encoding="utf-8")
     lines = content.split("\n")
-    
+
     in_section = False
     updated = False
     section_pattern = f"[{section}]"
-    
+
     for i, line in enumerate(lines):
         stripped = line.strip()
-        
+
         # Check if we're entering the target section
         if stripped == section_pattern:
             in_section = True
             continue
-        
+
         # Check if we've entered a different section (exit target section)
         if stripped.startswith("[") and stripped.endswith("]") and in_section:
             in_section = False
             continue
-        
+
         # If we're in the target section, look for the key
         if in_section and stripped.startswith(f"{key}"):
             # Check if it's a commented key like "# name = ..."
@@ -351,29 +357,31 @@ def _update_config_value(config_path: Path, section: str, key: str, value: str) 
             elif stripped.startswith(f"{key} =") or stripped.startswith(f'{key}="'):
                 # Update existing uncommented key
                 # Preserve the indentation
-                indent = line[:len(line) - len(line.lstrip())]
+                indent = line[: len(line) - len(line.lstrip())]
                 lines[i] = f'{indent}{key} = "{value}"'
                 updated = True
                 break
-    
+
     if updated:
         config_path.write_text("\n".join(lines), encoding="utf-8")
         logger.info(f"Updated {section}.{key} in {config_path}")
-    
+
     return updated
 
 
-def _add_commented_section(config_path: Path, section: str, commented_lines: list[str]) -> None:
+def _add_commented_section(
+    config_path: Path, section: str, commented_lines: list[str]
+) -> None:
     """Add a commented-out section to the config file if it doesn't already exist."""
     if not config_path.exists():
         return
 
     content = config_path.read_text(encoding="utf-8")
-    
+
     # Check if section already exists (commented or not)
     if f"[{section}]" in content or f"# [{section}]" in content:
         return
-    
+
     # Append the commented section
     content += "\n" + "\n".join(commented_lines) + "\n"
     config_path.write_text(content, encoding="utf-8")

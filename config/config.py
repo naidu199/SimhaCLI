@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 
 class ModelConfig(BaseModel):
-    name: str = "mistralai/devstral-2512:free"
+    name: str = "openrouter/free"
     temperature: float = Field(default=1.0, ge=0.0, le=2.0)
     context_window: int = 256_000
 

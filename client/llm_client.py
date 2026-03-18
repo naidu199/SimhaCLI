@@ -220,9 +220,9 @@ class LLMClient:
                                 "   • Wait a moment and try again\n"
                                 "   • Switch to a different model using: /model <model-name>\n"
                                 "   • Recommended alternatives:\n"
-                                "     - mistralai/mistral-7b-instruct:free\n"
-                                "     - meta-llama/llama-3.2-3b-instruct:free\n"
-                                "     - microsoft/phi-3-mini-128k-instruct:free"
+                                "       - openrouter/free (access to multiple free models)"
+                                "       - openrouter/hunter-alpha (specialized in code generation Recommended for coding tasks)"
+                                "       - openrouter/healer-alpha (specialized in debugging and fixing code issues Recommended for debugging tasks)"
                                 "If still facing issues after enabling this setting, terminate the agent and try again.\n"
                             ),
                         )

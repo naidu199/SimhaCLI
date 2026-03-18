@@ -27,17 +27,17 @@
 
 ## Build, Test, Lint, Run Commands
 
-| Action | Command |
-|---|---|
-| **Install dev** | `pip install -e .` |
-| **Run interactive** | `simhacli` |
+| Action                | Command                            |
+| --------------------- | ---------------------------------- |
+| **Install dev**       | `pip install -e .`                 |
+| **Run interactive**   | `simhacli`                         |
 | **Run single prompt** | `simhacli "fix the bug in app.py"` |
-| **Run as module** | `python -m simhacli` |
-| **Help** | `simhacli --help` |
-| **Build package** | `python -m build` |
-| **Publish** | `twine upload dist/*` |
-| **Check schemas** | `python scripts/check_schemas.py` |
-| **Test tool** | `python scripts/test_tool.py` |
+| **Run as module**     | `python -m simhacli`               |
+| **Help**              | `simhacli --help`                  |
+| **Build package**     | `python -m build`                  |
+| **Publish**           | `twine upload dist/*`              |
+| **Check schemas**     | `python scripts/check_schemas.py`  |
+| **Test tool**         | `python scripts/test_tool.py`      |
 
 No formal test suite or linting configuration exists in the repo.
 
@@ -46,6 +46,7 @@ No formal test suite or linting configuration exists in the repo.
 ## Architecture
 
 ### Entry Points
+
 - `main.py` — CLI entry point using Click; contains `SimhaCLI` class and `main()` function
 - `__main__.py` — Allows `python -m simhacli` invocation; delegates to `main.main()`
 
@@ -68,6 +69,7 @@ main.py (SimhaCLI + main())
 ```
 
 ### Data Flow
+
 1. User input → `SimhaCLI._process_message()`
 2. Agent runs agentic loop (`agent/agent.py:_agentic_loop`)
 3. For each turn: build messages → call LLM client → stream events
@@ -76,10 +78,12 @@ main.py (SimhaCLI + main())
 6. Events streamed to TUI for display
 
 ### Event System
+
 - `AgentEvent` / `AgentEventType` (`agent/events.py`) — event-driven architecture
 - Event types: `AGENT_START`, `AGENT_END`, `AGENT_ERROR`, `TEXT_DELTA`, `TEXT_COMPLETE`, `THINKING_DELTA`, `THINKING_COMPLETE`, `TOOL_CALL_START`, `TOOL_CALL_COMPLETE`, `LOOP_DETECTED`
 
 ### Tool System
+
 - Base class: `Tool` (`tools/base.py`) — abstract base with `execute()`, `validate_params()`, `to_openai_schema()`
 - Registry: `ToolRegistry` (`tools/registry.py`) — manages builtin + MCP + subagent tools
 - Discovery: `ToolDiscoveryManager` (`tools/discovery.py`) — loads custom tools from `.simhacli/tools/` directory
@@ -103,10 +107,12 @@ main.py (SimhaCLI + main())
 | `memory.py` | `memory` | MEMORY |
 
 **Default subagents** (`tools/subagent.py`):
+
 - `subagent_codebase_investigator`, `subagent_code_reviewer`, `subagent_test_generator`, `subagent_bug_fixer`, `subagent_refactorer`
 - Additional specialized subagents defined but not registered by default (security_auditor, performance_analyzer, ci_cd_integrator, etc.)
 
 ### Configuration System
+
 - `Config` model (`config/config.py`) — Pydantic BaseModel with all settings
 - `load_config()` (`config/loader.py`) — loads from:
   1. Global: `~/.simhacli/config.toml`
@@ -116,11 +122,13 @@ main.py (SimhaCLI + main())
 - Data directory via `platformdirs` (`~/.local/share/simhacli` or Windows equivalent)
 
 ### Session Management
+
 - `Session` (`agent/session.py`) — encapsulates LLM client, context manager, tool registry, loop detector, MCP manager
 - `StateManager` / `SessionSnapshot` (`agent/state.py`) — save/resume sessions, checkpoints to disk
 - User memory loaded from `user_memory.json` in data directory
 
 ### TUI (Terminal UI)
+
 - `TUI` class (`ui/tui.py`) — Rich-based terminal interface
 - Features: streaming text display, thinking display (grey italic), tool call formatting, working spinner, session stats
 
@@ -129,28 +137,33 @@ main.py (SimhaCLI + main())
 ## Code Conventions
 
 ### Naming
+
 - **Classes:** PascalCase (e.g., `ToolRegistry`, `ContextManager`, `AgentEvent`)
 - **Functions/methods:** snake_case (e.g., `add_user_message`, `get_system_prompt`)
 - **Constants:** UPPER_SNAKE_CASE (e.g., `DEFAULT_API_BASE_URL`, `PRUNE_PROTECT_TOKENS`)
 - **Files:** snake_case (e.g., `llm_client.py`, `tool_registry.py`)
 
 ### Import Style
+
 - Standard library → third-party → local imports (separated by blank lines)
 - Local imports use absolute paths from project root (e.g., `from agent.events import AgentEvent`)
 - Some lazy imports inside functions to avoid circular dependencies (e.g., `from agent.agent import Agent` inside `subagent.py`)
 
 ### Error Handling
+
 - `ToolResult.error_result()` for tool errors
 - `AgentEvent.agent_error()` for agent-level errors
 - `ConfigError` (`utils/errors.py`) for configuration errors
 - Retry with exponential backoff for API rate limits (3 retries)
 
 ### Async Patterns
+
 - `asyncio.gather` for parallel tool execution when multiple tool calls in one turn
 - `async for` streaming for both LLM responses and agent events
 - `async with Agent(config) as agent:` context manager pattern
 
 ### Data Models
+
 - Pydantic `BaseModel` for config and tool schemas
 - `@dataclass` for internal data structures (e.g., `SessionSnapshot`, `MessageItem`, `ToolResult`)
 - Enum for fixed sets (e.g., `ApprovalPolicy`, `ToolKind`, `AgentEventType`)
@@ -159,36 +172,36 @@ main.py (SimhaCLI + main())
 
 ## Key Files and Directories
 
-| Path | Description |
-|---|---|
-| `main.py` | CLI entry point, `SimhaCLI` class with command handlers |
-| `agent/agent.py` | Core `Agent` class with agentic loop |
-| `agent/session.py` | `Session` — encapsulates all agent state |
-| `agent/events.py` | Event types and `AgentEvent` dataclass |
-| `agent/state.py` | Session persistence (`StateManager`, `SessionSnapshot`) |
-| `client/llm_client.py` | `LLMClient` — OpenAI API integration with streaming |
-| `client/response.py` | Response types (`StreamEvent`, `TokenUsage`, `ToolCall`) |
-| `config/config.py` | `Config` and related Pydantic models |
-| `config/loader.py` | Config loading, saving, credential prompts |
-| `context/manager.py` | `ContextManager` — message history management |
-| `context/compaction.py` | `ChatCompressor` — context compression when near limit |
-| `context/loop_detector.py` | `LoopDetector` — detects repetitive behavior |
-| `tools/base.py` | `Tool` abstract base class, `ToolResult`, `ToolKind` |
-| `tools/registry.py` | `ToolRegistry`, `create_default_registry()` |
-| `tools/discovery.py` | Custom tool loading from `.simhacli/tools/` |
-| `tools/subagent.py` | Subagent definitions and `SubagentTool` class |
-| `tools/builtin/` | 11 builtin tool implementations |
-| `tools/mcp/` | MCP client, manager, and tool wrapper |
-| `prompts/system.py` | System prompt generation (identity, environment, guidelines) |
-| `safety/approval.py` | `ApprovalManager` — configurable approval policies |
-| `hooks/hook_system.py` | Lifecycle hooks (before/after agent, before/after tool) |
-| `ui/tui.py` | Rich-based terminal UI |
-| `utils/errors.py` | `ConfigError` exception |
-| `utils/text.py` | Token counting utilities |
-| `utils/file_attachments.py` | `@filename` attachment parsing |
-| `utils/paths.py` | Path utility functions |
-| `scripts/check_schemas.py` | Debug script for tool schema inspection |
-| `scripts/test_tool.py` | Debug script for testing individual tools |
+| Path                        | Description                                                  |
+| --------------------------- | ------------------------------------------------------------ |
+| `main.py`                   | CLI entry point, `SimhaCLI` class with command handlers      |
+| `agent/agent.py`            | Core `Agent` class with agentic loop                         |
+| `agent/session.py`          | `Session` — encapsulates all agent state                     |
+| `agent/events.py`           | Event types and `AgentEvent` dataclass                       |
+| `agent/state.py`            | Session persistence (`StateManager`, `SessionSnapshot`)      |
+| `client/llm_client.py`      | `LLMClient` — OpenAI API integration with streaming          |
+| `client/response.py`        | Response types (`StreamEvent`, `TokenUsage`, `ToolCall`)     |
+| `config/config.py`          | `Config` and related Pydantic models                         |
+| `config/loader.py`          | Config loading, saving, credential prompts                   |
+| `context/manager.py`        | `ContextManager` — message history management                |
+| `context/compaction.py`     | `ChatCompressor` — context compression when near limit       |
+| `context/loop_detector.py`  | `LoopDetector` — detects repetitive behavior                 |
+| `tools/base.py`             | `Tool` abstract base class, `ToolResult`, `ToolKind`         |
+| `tools/registry.py`         | `ToolRegistry`, `create_default_registry()`                  |
+| `tools/discovery.py`        | Custom tool loading from `.simhacli/tools/`                  |
+| `tools/subagent.py`         | Subagent definitions and `SubagentTool` class                |
+| `tools/builtin/`            | 11 builtin tool implementations                              |
+| `tools/mcp/`                | MCP client, manager, and tool wrapper                        |
+| `prompts/system.py`         | System prompt generation (identity, environment, guidelines) |
+| `safety/approval.py`        | `ApprovalManager` — configurable approval policies           |
+| `hooks/hook_system.py`      | Lifecycle hooks (before/after agent, before/after tool)      |
+| `ui/tui.py`                 | Rich-based terminal UI                                       |
+| `utils/errors.py`           | `ConfigError` exception                                      |
+| `utils/text.py`             | Token counting utilities                                     |
+| `utils/file_attachments.py` | `@filename` attachment parsing                               |
+| `utils/paths.py`            | Path utility functions                                       |
+| `scripts/check_schemas.py`  | Debug script for tool schema inspection                      |
+| `scripts/test_tool.py`      | Debug script for testing individual tools                    |
 
 ---
 
@@ -196,25 +209,25 @@ main.py (SimhaCLI + main())
 
 Available in REPL mode (prefix with `/`):
 
-| Command | Action |
-|---|---|
-| `/help` | Show all commands |
-| `/exit` or `/quit` | Exit |
-| `/clear` | Clear conversation history |
-| `/model <name>` | Switch LLM model |
-| `/approval <policy>` | Change approval policy |
-| `/config` | Show current config |
-| `/credentials` | View/update API key and base URL |
-| `/tools` | List available tools |
-| `/mcp` | Show MCP server status |
-| `/stats` | Show session statistics |
-| `/save` | Save session to disk |
-| `/sessions` | List saved sessions |
-| `/resume <id>` | Resume a session |
-| `/checkpoint` | Create checkpoint |
-| `/restore <id>` | Restore checkpoint |
-| `/undo` | Undo last file edit |
-| `/init` | Analyze project and generate AGENTS.md / SIMHACLI.md |
+| Command              | Action                                               |
+| -------------------- | ---------------------------------------------------- |
+| `/help`              | Show all commands                                    |
+| `/exit` or `/quit`   | Exit                                                 |
+| `/clear`             | Clear conversation history                           |
+| `/model <name>`      | Switch LLM model                                     |
+| `/approval <policy>` | Change approval policy                               |
+| `/config`            | Show current config                                  |
+| `/credentials`       | View/update API key and base URL                     |
+| `/tools`             | List available tools                                 |
+| `/mcp`               | Show MCP server status                               |
+| `/stats`             | Show session statistics                              |
+| `/save`              | Save session to disk                                 |
+| `/sessions`          | List saved sessions                                  |
+| `/resume <id>`       | Resume a session                                     |
+| `/checkpoint`        | Create checkpoint                                    |
+| `/restore <id>`      | Restore checkpoint                                   |
+| `/undo`              | Undo last file edit                                  |
+| `/init`              | Analyze project and generate AGENTS.md / SIMHACLI.md |
 
 ---
 
@@ -224,9 +237,10 @@ Global config: `~/.simhacli/config.toml`
 Project config: `<project>/.simhacli/config.toml`
 
 Key sections:
+
 ```toml
 [model]
-name = "mistralai/devstral-2512:free"
+name = "openrouter/free"
 temperature = 1.0
 
 api_key = "sk-..."

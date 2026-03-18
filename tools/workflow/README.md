@@ -56,8 +56,12 @@ The AI agent can invoke the workflow tool directly:
   "db_schema": "CREATE TABLE users (id SERIAL PRIMARY KEY, name VARCHAR(100));",
   "test_url": "https://my-app.vercel.app",
   "test_scenarios": [
-    {"name": "page_loads", "action": "goto", "url": "https://my-app.vercel.app"},
-    {"name": "title_check", "action": "get_title"}
+    {
+      "name": "page_loads",
+      "action": "goto",
+      "url": "https://my-app.vercel.app"
+    },
+    { "name": "title_check", "action": "get_title" }
   ]
 }
 ```
@@ -70,7 +74,7 @@ Enable the required MCP servers in `.simhacli/config.toml`:
 [mcp_servers.github]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-github"]
-enabled = true  # Set GITHUB_TOKEN env var
+enabled = true  # Set GITHUB_PERSONAL_ACCESS_TOKEN env var
 
 [mcp_servers.postgres]
 command = "npx"
@@ -87,7 +91,7 @@ enabled = true
 
 ```bash
 # Required for GitHub MCP
-export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+export GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxxxxxxxxxxx
 
 # Required for PostgreSQL MCP
 export DATABASE_URL=postgresql://user:password@localhost:5432/dbname

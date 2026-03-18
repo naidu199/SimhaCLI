@@ -380,7 +380,7 @@ When a required MCP server is missing, provide the user with setup instructions.
 [mcp_servers.github]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-github"]
-env = { GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
+env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
 ```
 Token: https://github.com/settings/tokens (scopes: repo, workflow, gist)
 
@@ -396,21 +396,21 @@ env = { DATABASE_URL = "postgresql://postgres:password@db.abcdef.supabase.co:543
 ```toml
 [mcp_servers.supabase]
 command = "npx"
-args = ["-y", "@supabase/mcp-server-supabase"]
-env = { 
-  SUPABASE_PROJECT_REF = "abcdefghijklmnop",
-  SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xxx",
-  SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.yyy"
-}
+args = [
+  "-y",
+  "@supabase/mcp-server-supabase",
+  "--access-token", "sbp_xxxxxxxxxxxx",
+  "--project-ref", "abcdefghijklmnop"
+]
 ```
-Keys: https://supabase.com/dashboard
+Access token: https://supabase.com/dashboard → Account → Access Tokens
+Project ref: Project Settings → General
 
-### Vercel MCP
-```toml
-[mcp_servers.vercel]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-vercel"]
-env = { VERCEL_TOKEN = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
+### Vercel Deployment (CLI)
+No MCP needed. Use vercel CLI:
+```bash
+npm install -g vercel
+vercel login
 ```
 Token: https://vercel.com/account/tokens
 

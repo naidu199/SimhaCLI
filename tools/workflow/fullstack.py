@@ -1,4 +1,5 @@
 """Full-stack development workflows."""
+
 import logging
 from typing import Any
 
@@ -35,14 +36,14 @@ class CreateGitHubRepoStep(WorkflowStep):
 
         # Look for GitHub MCP tools
         github_tools = [
-            name for name in tool_registry._mcp_tools.keys()
-            if "github" in name.lower()
+            name for name in tool_registry._mcp_tools.keys() if "github" in name.lower()
         ]
 
         if not github_tools:
             # Try with different naming patterns
             github_tools = [
-                name for name in tool_registry._mcp_tools.keys()
+                name
+                for name in tool_registry._mcp_tools.keys()
                 if "git" in name.lower()
             ]
 
@@ -60,7 +61,7 @@ Set up GitHub MCP (recommended):
 [mcp_servers.github]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-github"]
-env = { GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
+env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
 
 3. Restart SimhaCLI
 
@@ -106,7 +107,11 @@ Manual alternative (if MCP not available):
             tool = tool_registry.get(create_repo_tool)
             invocation = ToolInvocation(
                 params=params,
-                cwd=context.get("_config", {}).cwd if hasattr(context.get("_config", {}), "cwd") else Path.cwd(),
+                cwd=(
+                    context.get("_config", {}).cwd
+                    if hasattr(context.get("_config", {}), "cwd")
+                    else Path.cwd()
+                ),
             )
 
             result = await tool.execute(invocation)
@@ -130,6 +135,7 @@ Manual alternative (if MCP not available):
             if "clone_url" in output.lower() or "https://" in output:
                 # Try to extract the URL
                 import re
+
                 url_match = re.search(r'https://github\.com/[^\s"]+', output)
                 if url_match:
                     metadata["github_clone_url"] = url_match.group(0)
@@ -177,14 +183,18 @@ class SetupDatabaseStep(WorkflowStep):
 
         # Look for Supabase MCP tools (priority)
         supabase_tools = [
-            name for name in tool_registry._mcp_tools.keys()
+            name
+            for name in tool_registry._mcp_tools.keys()
             if "supabase" in name.lower()
         ]
 
         # Look for PostgreSQL MCP tools
         pg_tools = [
-            name for name in tool_registry._mcp_tools.keys()
-            if "postgres" in name.lower() or "sql" in name.lower() or "database" in name.lower()
+            name
+            for name in tool_registry._mcp_tools.keys()
+            if "postgres" in name.lower()
+            or "sql" in name.lower()
+            or "database" in name.lower()
         ]
 
         # Prefer Supabase if available
@@ -213,12 +223,12 @@ Or set up Supabase MCP:
 
 [mcp_servers.supabase]
 command = "npx"
-args = ["-y", "@supabase/mcp-server-supabase"]
-env = { 
-  SUPABASE_PROJECT_REF = "abcdefghijklmnop",
-  SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xxx",
-  SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.yyy"
-}
+args = [
+  "-y",
+  "@supabase/mcp-server-supabase",
+  "--access-token", "sbp_xxxxxxxxxxxx",
+  "--project-ref", "abcdefghijklmnop"
+]
 
 3. Restart SimhaCLI
 
@@ -226,7 +236,9 @@ Manual alternative (if MCP not available):
   psql "postgresql://user:pass@host:5432/dbname" -c "CREATE DATABASE mydb;\"""",
             )
 
-    async def _execute_supabase(self, context: dict[str, Any], supabase_tools: list[str]) -> WorkflowStepResult:
+    async def _execute_supabase(
+        self, context: dict[str, Any], supabase_tools: list[str]
+    ) -> WorkflowStepResult:
         """Execute database setup using Supabase MCP tools."""
         from tools.base import ToolInvocation
         from pathlib import Path
@@ -264,7 +276,11 @@ Manual alternative (if MCP not available):
                 tool = tool_registry.get(migration_tool)
                 invocation = ToolInvocation(
                     params={"query": db_schema, "project_ref": db_name},
-                    cwd=context.get("_config", {}).cwd if hasattr(context.get("_config", {}), "cwd") else Path.cwd(),
+                    cwd=(
+                        context.get("_config", {}).cwd
+                        if hasattr(context.get("_config", {}), "cwd")
+                        else Path.cwd()
+                    ),
                 )
                 result = await tool.execute(invocation)
                 metadata["db_schema_applied"] = True
@@ -273,7 +289,11 @@ Manual alternative (if MCP not available):
                 tool = tool_registry.get(query_tool)
                 invocation = ToolInvocation(
                     params={"query": db_schema, "project_ref": db_name},
-                    cwd=context.get("_config", {}).cwd if hasattr(context.get("_config", {}), "cwd") else Path.cwd(),
+                    cwd=(
+                        context.get("_config", {}).cwd
+                        if hasattr(context.get("_config", {}), "cwd")
+                        else Path.cwd()
+                    ),
                 )
                 result = await tool.execute(invocation)
                 metadata["db_schema_applied"] = True
@@ -282,7 +302,11 @@ Manual alternative (if MCP not available):
                 tool = tool_registry.get(project_tool)
                 invocation = ToolInvocation(
                     params={"name": db_name},
-                    cwd=context.get("_config", {}).cwd if hasattr(context.get("_config", {}), "cwd") else Path.cwd(),
+                    cwd=(
+                        context.get("_config", {}).cwd
+                        if hasattr(context.get("_config", {}), "cwd")
+                        else Path.cwd()
+                    ),
                 )
                 result = await tool.execute(invocation)
             else:
@@ -292,7 +316,11 @@ Manual alternative (if MCP not available):
                 params = {"query": db_schema} if db_schema else {}
                 invocation = ToolInvocation(
                     params=params,
-                    cwd=context.get("_config", {}).cwd if hasattr(context.get("_config", {}), "cwd") else Path.cwd(),
+                    cwd=(
+                        context.get("_config", {}).cwd
+                        if hasattr(context.get("_config", {}), "cwd")
+                        else Path.cwd()
+                    ),
                 )
                 result = await tool.execute(invocation)
 
@@ -307,7 +335,8 @@ Manual alternative (if MCP not available):
             return WorkflowStepResult(
                 step_name=self.name,
                 status=StepStatus.COMPLETED,
-                output=result.output or f"Supabase project '{db_name}' configured successfully",
+                output=result.output
+                or f"Supabase project '{db_name}' configured successfully",
                 metadata=metadata,
             )
 
@@ -319,7 +348,9 @@ Manual alternative (if MCP not available):
                 error=str(e),
             )
 
-    async def _execute_postgres(self, context: dict[str, Any], pg_tools: list[str]) -> WorkflowStepResult:
+    async def _execute_postgres(
+        self, context: dict[str, Any], pg_tools: list[str]
+    ) -> WorkflowStepResult:
         """Execute database setup using PostgreSQL MCP tools."""
         from tools.base import ToolInvocation
         from pathlib import Path
@@ -348,7 +379,11 @@ Manual alternative (if MCP not available):
                 tool = tool_registry.get(create_db_tool)
                 invocation = ToolInvocation(
                     params={"database": db_name},
-                    cwd=context.get("_config", {}).cwd if hasattr(context.get("_config", {}), "cwd") else Path.cwd(),
+                    cwd=(
+                        context.get("_config", {}).cwd
+                        if hasattr(context.get("_config", {}), "cwd")
+                        else Path.cwd()
+                    ),
                 )
                 result = await tool.execute(invocation)
             elif query_tool:
@@ -356,7 +391,11 @@ Manual alternative (if MCP not available):
                 create_sql = f'CREATE DATABASE "{db_name}";'
                 invocation = ToolInvocation(
                     params={"query": create_sql},
-                    cwd=context.get("_config", {}).cwd if hasattr(context.get("_config", {}), "cwd") else Path.cwd(),
+                    cwd=(
+                        context.get("_config", {}).cwd
+                        if hasattr(context.get("_config", {}), "cwd")
+                        else Path.cwd()
+                    ),
                 )
                 result = await tool.execute(invocation)
             else:
@@ -377,7 +416,11 @@ Manual alternative (if MCP not available):
                 tool = tool_registry.get(query_tool)
                 invocation = ToolInvocation(
                     params={"query": db_schema},
-                    cwd=context.get("_config", {}).cwd if hasattr(context.get("_config", {}), "cwd") else Path.cwd(),
+                    cwd=(
+                        context.get("_config", {}).cwd
+                        if hasattr(context.get("_config", {}), "cwd")
+                        else Path.cwd()
+                    ),
                 )
                 schema_result = await tool.execute(invocation)
                 if schema_result.error:
@@ -440,8 +483,7 @@ class DeployToVercelStep(WorkflowStep):
 
         # Look for Vercel MCP tools
         vercel_tools = [
-            name for name in tool_registry._mcp_tools.keys()
-            if "vercel" in name.lower()
+            name for name in tool_registry._mcp_tools.keys() if "vercel" in name.lower()
         ]
 
         if not vercel_tools:
@@ -478,7 +520,11 @@ class DeployToVercelStep(WorkflowStep):
             tool = tool_registry.get(deploy_tool)
             invocation = ToolInvocation(
                 params=params,
-                cwd=context.get("_config", {}).cwd if hasattr(context.get("_config", {}), "cwd") else Path.cwd(),
+                cwd=(
+                    context.get("_config", {}).cwd
+                    if hasattr(context.get("_config", {}), "cwd")
+                    else Path.cwd()
+                ),
             )
 
             result = await tool.execute(invocation)
@@ -499,7 +545,8 @@ class DeployToVercelStep(WorkflowStep):
             # Try to extract deployment URL
             output = result.output or ""
             import re
-            url_match = re.search(r'https://[a-z0-9-]+\.vercel\.app', output)
+
+            url_match = re.search(r"https://[a-z0-9-]+\.vercel\.app", output)
             if url_match:
                 metadata["vercel_url"] = url_match.group(0)
 
@@ -537,22 +584,11 @@ class DeployToVercelStep(WorkflowStep):
                 return WorkflowStepResult(
                     step_name=self.name,
                     status=StepStatus.FAILED,
-                    error="""Vercel deployment failed - no deployment method available.
+                    error="""Vercel CLI not found. Install and login to deploy:
 
-Set up Vercel MCP for automatic deployment:
-1. Get your token at: https://vercel.com/account/tokens
-2. Add to .simhacli/config.toml (file is gitignored, keys are safe):
-
-[mcp_servers.vercel]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-vercel"]
-env = { VERCEL_TOKEN = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
-
-3. Restart SimhaCLI
-
-Manual alternative (if MCP not available):
-  npm i -g vercel && vercel login
-  cd your-project && vercel --yes""",
+1. npm install -g vercel
+2. vercel login (provide your token when prompted)
+3. vercel --yes""",
                 )
 
             # Deploy
@@ -580,7 +616,8 @@ Manual alternative (if MCP not available):
 
             # Extract URL
             import re
-            url_match = re.search(r'https://[a-z0-9-]+\.vercel\.app', result.stdout)
+
+            url_match = re.search(r"https://[a-z0-9-]+\.vercel\.app", result.stdout)
             if url_match:
                 metadata["vercel_url"] = url_match.group(0)
 
@@ -632,7 +669,8 @@ class RunTestsStep(WorkflowStep):
 
         # Look for Playwright MCP tools
         playwright_tools = [
-            name for name in tool_registry._mcp_tools.keys()
+            name
+            for name in tool_registry._mcp_tools.keys()
             if "playwright" in name.lower() or "browser" in name.lower()
         ]
 
@@ -678,7 +716,11 @@ Manual alternative:
                 # Find appropriate tool
                 tool_name = None
                 for name in playwright_tools:
-                    if action in name.lower() or "navigate" in name.lower() or "goto" in name.lower():
+                    if (
+                        action in name.lower()
+                        or "navigate" in name.lower()
+                        or "goto" in name.lower()
+                    ):
                         tool_name = name
                         break
 
@@ -701,7 +743,11 @@ Manual alternative:
 
                 invocation = ToolInvocation(
                     params=params,
-                    cwd=context.get("_config", {}).cwd if hasattr(context.get("_config", {}), "cwd") else Path.cwd(),
+                    cwd=(
+                        context.get("_config", {}).cwd
+                        if hasattr(context.get("_config", {}), "cwd")
+                        else Path.cwd()
+                    ),
                 )
 
                 result = await tool.execute(invocation)
@@ -862,7 +908,11 @@ class PushToGitHubStep(WorkflowStep):
                 text=True,
                 cwd=repo_path,
             )
-            commit_hash = hash_result.stdout.strip()[:7] if hash_result.returncode == 0 else "unknown"
+            commit_hash = (
+                hash_result.stdout.strip()[:7]
+                if hash_result.returncode == 0
+                else "unknown"
+            )
 
             metadata = {
                 "committed": True,
@@ -980,7 +1030,9 @@ class InstallDepsStep(WorkflowStep):
         import os
 
         project_path = context["project_path"]
-        package_manager = context.get("package_manager")  # npm, pip, yarn, pnpm, composer, etc.
+        package_manager = context.get(
+            "package_manager"
+        )  # npm, pip, yarn, pnpm, composer, etc.
 
         try:
             # Auto-detect package manager if not specified
@@ -1135,6 +1187,7 @@ class EnvSetupStep(WorkflowStep):
                 template_path = os.path.join(project_path, copy_from)
                 if os.path.exists(template_path):
                     import shutil
+
                     shutil.copy2(template_path, env_path)
                     created = True
                     updated_vars = [f"Copied from {copy_from}"]
@@ -1204,6 +1257,7 @@ class BuildStep(WorkflowStep):
                 if os.path.exists(os.path.join(project_path, "package.json")):
                     # Check if build script exists in package.json
                     import json
+
                     with open(os.path.join(project_path, "package.json")) as f:
                         pkg = json.load(f)
                         if "build" in pkg.get("scripts", {}):
@@ -1313,7 +1367,9 @@ class GenerateReadmeStep(WorkflowStep):
         import os
 
         project_path = context["project_path"]
-        repo_name = context.get("repo_name", os.path.basename(os.path.abspath(project_path)))
+        repo_name = context.get(
+            "repo_name", os.path.basename(os.path.abspath(project_path))
+        )
         repo_description = context.get("repo_description", "")
         custom_readme = context.get("custom_readme", "")
         overwrite = context.get("overwrite_readme", False)
@@ -1335,7 +1391,9 @@ class GenerateReadmeStep(WorkflowStep):
                 content = custom_readme
             else:
                 # Auto-generate from project context
-                content = self._generate_readme(project_path, repo_name, repo_description, context)
+                content = self._generate_readme(
+                    project_path, repo_name, repo_description, context
+                )
 
             with open(readme_path, "w") as f:
                 f.write(content)
@@ -1358,7 +1416,9 @@ class GenerateReadmeStep(WorkflowStep):
                 error=str(e),
             )
 
-    def _generate_readme(self, project_path: str, repo_name: str, repo_description: str, context: dict) -> str:
+    def _generate_readme(
+        self, project_path: str, repo_name: str, repo_description: str, context: dict
+    ) -> str:
         """Generate a README.md content."""
         import os
         import json
@@ -1413,7 +1473,11 @@ class GenerateReadmeStep(WorkflowStep):
         elif os.path.exists(os.path.join(project_path, "composer.json")):
             project_type = "PHP"
             install_cmd = "composer install"
-            run_cmd = "php artisan serve" if os.path.exists(os.path.join(project_path, "artisan")) else ""
+            run_cmd = (
+                "php artisan serve"
+                if os.path.exists(os.path.join(project_path, "artisan"))
+                else ""
+            )
 
         lines.append(f"\n## Tech Stack\n")
         lines.append(f"- {project_type}\n")

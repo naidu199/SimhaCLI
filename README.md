@@ -78,7 +78,8 @@ SimhaCLI🦁  complete in 14.2s  8821 tokens (8120 prompt + 701 completion)
 - Connect to any MCP server via stdio or HTTP/SSE transport
 - Tools discovered automatically at startup
 - Manage connections live with `/mcp`
-- Pre-configured examples for GitHub, PostgreSQL, Supabase, Vercel, and Playwright
+- Pre-configured examples for GitHub, PostgreSQL, Supabase, and Playwright
+- Vercel deployment uses CLI (`npm install -g vercel`) — no MCP needed
 
 ### 🚀 Development Workflows
 
@@ -173,7 +174,7 @@ SimhaCLI looks for configuration in two places (project overrides global):
 
 ```toml
 [model]
-name = "mistralai/devstral-2512:free"
+name = "openrouter/free"
 temperature = 1.0
 
 api_key = "your_api_key_here"
@@ -203,7 +204,7 @@ simhacli
 
 ```toml
 [model]
-name = "mistralai/devstral-2512:free"   # any OpenAI-compatible model
+name = "openrouter/free"   # any OpenAI-compatible model
 temperature = 1.0
 
 api_key = "sk-..."
