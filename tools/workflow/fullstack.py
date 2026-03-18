@@ -50,7 +50,24 @@ class CreateGitHubRepoStep(WorkflowStep):
             return WorkflowStepResult(
                 step_name=self.name,
                 status=StepStatus.FAILED,
-                error="GitHub MCP server not connected. Please configure the GitHub MCP server.",
+                error="""GitHub repository creation failed - no GitHub MCP connected.
+
+Set up GitHub MCP (recommended):
+1. Create a Personal Access Token at: https://github.com/settings/tokens
+   - Select scopes: repo, workflow, gist
+2. Add to .simhacli/config.toml:
+
+[mcp_servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_TOKEN = "ghp_your_token_here" }
+
+3. Restart SimhaCLI
+
+Manual alternative (if MCP not available):
+  git init && git remote add origin https://github.com/USERNAME/REPO.git
+  git add -A && git commit -m "Initial commit"
+  git push -u origin main""",
             )
 
         # Find the create repository tool
@@ -179,7 +196,34 @@ class SetupDatabaseStep(WorkflowStep):
             return WorkflowStepResult(
                 step_name=self.name,
                 status=StepStatus.FAILED,
-                error="No database MCP server connected. Please configure PostgreSQL or Supabase MCP server.",
+                error="""Database setup failed - no database MCP connected.
+
+Set up PostgreSQL MCP (recommended):
+1. Get your PostgreSQL connection string
+2. Add to .simhacli/config.toml:
+
+[mcp_servers.postgresql]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-postgres"]
+env = { DATABASE_URL = "postgresql://user:pass@host:5432/dbname" }
+
+Or set up Supabase MCP:
+1. Get project ref and keys from: https://supabase.com/dashboard
+2. Add to .simhacli/config.toml:
+
+[mcp_servers.supabase]
+command = "npx"
+args = ["-y", "@supabase/mcp-server-supabase"]
+env = { 
+  SUPABASE_PROJECT_REF = "your_project_ref",
+  SUPABASE_ANON_KEY = "your_anon_key",
+  SUPABASE_SERVICE_ROLE_KEY = "your_service_key"
+}
+
+3. Restart SimhaCLI
+
+Manual alternative (if MCP not available):
+  psql "postgresql://user:pass@host:5432/dbname" -c "CREATE DATABASE mydb;\"""",
             )
 
     async def _execute_supabase(self, context: dict[str, Any], supabase_tools: list[str]) -> WorkflowStepResult:
@@ -493,7 +537,22 @@ class DeployToVercelStep(WorkflowStep):
                 return WorkflowStepResult(
                     step_name=self.name,
                     status=StepStatus.FAILED,
-                    error="Vercel CLI not installed. Install with: npm i -g vercel",
+                    error="""Vercel deployment failed - no deployment method available.
+
+Set up Vercel MCP for automatic deployment:
+1. Get your token at: https://vercel.com/account/tokens
+2. Add to .simhacli/config.toml:
+
+[mcp_servers.vercel]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-vercel"]
+env = { VERCEL_TOKEN = "your_token_here" }
+
+3. Restart SimhaCLI
+
+Manual alternative (if MCP not available):
+  npm i -g vercel && vercel login
+  cd your-project && vercel --yes""",
                 )
 
             # Deploy
@@ -581,7 +640,18 @@ class RunTestsStep(WorkflowStep):
             return WorkflowStepResult(
                 step_name=self.name,
                 status=StepStatus.SKIPPED,
-                output="Playwright MCP server not connected. Skipping tests.",
+                output="""Playwright MCP server not connected. Tests skipped.
+
+To enable E2E testing, set up Playwright MCP in .simhacli/config.toml:
+
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp"]
+
+Restart SimhaCLI after configuring.
+
+Manual alternative:
+  npm i -g @playwright/mcp && npx @playwright/mcp""",
             )
 
         test_url = context.get("test_url") or context.get("vercel_url")

@@ -367,7 +367,59 @@ Auto-detects build command from package.json, Makefile, Cargo.toml, etc.
 - For `push`, the agent should provide a meaningful `commit_message` based on what was changed
 - For `env_setup`, extract env var names from code (e.g., `process.env.API_KEY` -> needs `API_KEY`)
 
-When users ask to set up, build, push, deploy, or test their project, use the workflow tool with the appropriate action. Infer the action from the user's natural language request."""
+When users ask to set up, build, push, deploy, or test their project, use the workflow tool with the appropriate action. Infer the action from the user's natural language request.
+
+## MCP Server Setup Reference
+
+When a required MCP server is missing, provide the user with setup instructions. Always suggest MCP setup first, with CLI/manual as fallback.
+
+### GitHub MCP
+```toml
+[mcp_servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_TOKEN = "ghp_your_token_here" }
+```
+Token: https://github.com/settings/tokens (scopes: repo, workflow, gist)
+
+### PostgreSQL MCP
+```toml
+[mcp_servers.postgresql]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-postgres"]
+env = { DATABASE_URL = "postgresql://user:pass@host:5432/dbname" }
+```
+
+### Supabase MCP
+```toml
+[mcp_servers.supabase]
+command = "npx"
+args = ["-y", "@supabase/mcp-server-supabase"]
+env = { 
+  SUPABASE_PROJECT_REF = "your_project_ref",
+  SUPABASE_ANON_KEY = "your_anon_key",
+  SUPABASE_SERVICE_ROLE_KEY = "your_service_key"
+}
+```
+Keys: https://supabase.com/dashboard
+
+### Vercel MCP
+```toml
+[mcp_servers.vercel]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-vercel"]
+env = { VERCEL_TOKEN = "your_token_here" }
+```
+Token: https://vercel.com/account/tokens
+
+### Playwright MCP
+```toml
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp"]
+```
+
+After configuring any MCP, user must restart SimhaCLI for changes to take effect."""
 
 
 def _get_developer_instructions_section(instructions: str) -> str:
