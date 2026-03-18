@@ -78,6 +78,32 @@ SimhaCLI🦁  complete in 14.2s  8821 tokens (8120 prompt + 701 completion)
 - Connect to any MCP server via stdio or HTTP/SSE transport
 - Tools discovered automatically at startup
 - Manage connections live with `/mcp`
+- Pre-configured examples for GitHub, PostgreSQL, Supabase, Vercel, and Playwright
+
+### 🚀 Development Workflows
+
+End-to-end automation with a single command or natural language:
+
+| Action | Description |
+|--------|-------------|
+| `fullstack` | GitHub → Push → Install → Env → Build → README → DB → Deploy → Tests |
+| `github` | Create a GitHub repository |
+| `push` | Commit and push code changes |
+| `install_deps` | Auto-detect and install dependencies (npm, yarn, pip, cargo, etc.) |
+| `env_setup` | Create .env file from template or with custom variables |
+| `build` | Auto-detect and run build commands |
+| `readme` | Generate README.md for the project |
+| `database` | Set up PostgreSQL or Supabase database |
+| `deploy` | Deploy to Vercel |
+| `tests` | Run Playwright E2E tests |
+
+**Just ask in natural language:**
+- "Deploy my app to Vercel"
+- "Create a GitHub repo and push my code"
+- "Set up the database for my project"
+- "Build and deploy my full stack app"
+
+Works with MCP servers when configured, falls back to CLI tools automatically.
 
 ### 💾 Session Management
 
@@ -290,6 +316,18 @@ Options:
 ---
 
 ## 📝 Changelog
+
+### v1.3.0 (March 18, 2026)
+
+- **Development Workflows**: 10 end-to-end workflow actions (fullstack, github, push, install_deps, env_setup, build, readme, database, deploy, tests)
+- **Natural Language Routing**: Agent automatically maps user requests to workflow actions
+- **Supabase MCP Support**: Full Supabase integration alongside PostgreSQL
+- **Smart Auto-Detection**: Package managers, build commands, and project types detected automatically
+- **MCP Setup Guide**: Comprehensive `MCP_SETUP_GUIDE.md` with step-by-step instructions
+- **Preserved Config Comments**: Changing model via `/model` no longer strips comments from config.toml
+- **Auto .gitignore**: `.simhacli/` folder automatically added to .gitignore to protect API keys
+- **Enhanced Error Messages**: All MCP errors now show setup instructions with config snippets
+- **Security Improvements**: Placeholder values in configs, .gitignore protection for sensitive data
 
 ### v1.2.0 (March 17, 2026)
 
