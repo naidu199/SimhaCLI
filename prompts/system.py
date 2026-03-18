@@ -27,6 +27,9 @@ def get_system_prompt(
     if tools:
         parts.append(_get_tool_guidelines_section(tools))
 
+    # Workflow capabilities
+    parts.append(_get_workflow_section())
+
     # AGENTS.md spec
     parts.append(_get_agents_md_section())
 
@@ -230,6 +233,141 @@ If completing the user's task requires writing or modifying files, your code and
 - Do not waste tokens by re-reading files after calling `apply_patch` on them. The tool call will fail if it didn't work. The same goes for making folders, deleting folders, etc.
 - Do not add inline comments within code unless explicitly requested.
 - Do not use one-letter variable names unless explicitly requested."""
+
+
+def _get_workflow_section() -> str:
+    """Generate workflow capabilities section."""
+    return """# End-to-End Workflows
+
+You have access to the `workflow` tool for orchestrating development tasks. It supports running the full pipeline or individual steps.
+
+## Available Actions
+
+| Action | Description | When to Use |
+|--------|-------------|-------------|
+| `fullstack` | Complete pipeline: GitHub -> Push -> Install -> Env -> Build -> Readme -> DB -> Deploy -> Tests | User wants to set up and deploy an entire project |
+| `github` | Create a GitHub repository | User says "create a repo", "push to GitHub", "set up GitHub" |
+| `push` | Commit and push code changes | User says "commit my changes", "push to git", "save to GitHub" |
+| `install_deps` | Install project dependencies | User says "install packages", "set up dependencies", "npm install" |
+| `env_setup` | Create/update .env file | User says "set up env vars", "create .env", "configure environment" |
+| `build` | Build the project | User says "build the project", "compile", "run build" |
+| `readme` | Generate README.md | User says "write a README", "generate documentation" |
+| `database` | Set up PostgreSQL/Supabase database | User says "create database", "set up DB", "configure database" |
+| `deploy` | Deploy to Vercel | User says "deploy the app", "deploy to Vercel", "publish" |
+| `tests` | Run Playwright tests | User says "run tests", "test the app", "check if it works" |
+
+## Natural Language Mapping
+
+The agent should interpret user requests and map them to the appropriate workflow action:
+
+- "Create a new React app called 'my-app' and deploy it" -> `fullstack`
+- "Push my changes to GitHub" -> `push` with `commit_message`
+- "Set up the database for my project" -> `database`
+- "Install dependencies" -> `install_deps`
+- "Create a .env file with my API keys" -> `env_setup` with `env_vars`
+- "Build my project before deploying" -> `build`
+- "Write a README for my project" -> `readme`
+- "Deploy to Vercel" -> `deploy`
+- "Run the test suite" -> `tests`
+- "Commit and push my new feature" -> `push` with `commit_message` and `files`
+
+## Full Pipeline (fullstack)
+
+When using `action: "fullstack"`, all steps run in order:
+1. **Create GitHub Repository** - Creates a new repo on GitHub
+2. **Push Code** - Commits and pushes all code
+3. **Install Dependencies** - Auto-detects npm/yarn/pip/cargo/etc.
+4. **Setup Environment** - Creates .env from template or with vars
+5. **Build Project** - Runs build command (npm run build, etc.)
+6. **Generate README** - Creates README.md if missing
+7. **Setup Database** - PostgreSQL or Supabase (auto-detected)
+8. **Deploy to Vercel** - Deploys via MCP or CLI
+9. **Run Tests** - Playwright E2E tests (optional)
+
+## Individual Step Examples
+
+### Create GitHub repo only:
+```json
+{"action": "github", "repo_name": "my-app", "repo_description": "My app", "repo_private": false}
+```
+
+### Commit and push code:
+```json
+{"action": "push", "project_path": "./my-app", "commit_message": "Add user authentication"}
+```
+
+### Push specific files:
+```json
+{"action": "push", "project_path": "./my-app", "files": ["auth.py", "models.py"], "commit_message": "Update auth module"}
+```
+
+### Install dependencies:
+```json
+{"action": "install_deps", "project_path": "./my-app"}
+```
+Auto-detects: npm, yarn, pnpm, pip, pipenv, composer, cargo, go
+
+### Setup environment variables:
+```json
+{"action": "env_setup", "project_path": "./my-app", "env_vars": {"API_KEY": "xxx", "DB_URL": "yyy"}}
+```
+Or copy from .env.example:
+```json
+{"action": "env_setup", "project_path": "./my-app"}
+```
+
+### Build the project:
+```json
+{"action": "build", "project_path": "./my-app"}
+```
+Auto-detects build command from package.json, Makefile, Cargo.toml, etc.
+
+### Generate README:
+```json
+{"action": "readme", "project_path": "./my-app", "repo_description": "My awesome app"}
+```
+
+### Setup database (PostgreSQL or Supabase):
+```json
+{"action": "database", "db_name": "myapp_db", "db_schema": "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT);"}
+```
+
+### Deploy to Vercel:
+```json
+{"action": "deploy", "project_path": "./my-app", "project_name": "my-app"}
+```
+
+### Run tests:
+```json
+{"action": "tests", "test_url": "https://my-app.vercel.app"}
+```
+
+## Full Pipeline Example:
+```json
+{
+  "action": "fullstack",
+  "repo_name": "my-app",
+  "repo_description": "My awesome app",
+  "db_name": "myapp_db",
+  "project_path": "./my-app",
+  "commit_message": "Initial commit"
+}
+```
+
+## Requirements:
+- **GitHub MCP** - For repo creation (optional for push if remote exists)
+- **PostgreSQL/Supabase MCP** - For database setup (optional if not needed)
+- **Vercel MCP or CLI** - For deployment (fallback to CLI if MCP not available)
+- **Playwright MCP** - For E2E tests (optional, skips if not connected)
+
+## Important Notes:
+- Steps marked `required=True` will fail the workflow if they error
+- Steps marked `required=False` will be skipped on failure (won't break workflow)
+- Most individual steps auto-detect configuration (package manager, build commands, etc.)
+- For `push`, the agent should provide a meaningful `commit_message` based on what was changed
+- For `env_setup`, extract env var names from code (e.g., `process.env.API_KEY` -> needs `API_KEY`)
+
+When users ask to set up, build, push, deploy, or test their project, use the workflow tool with the appropriate action. Infer the action from the user's natural language request."""
 
 
 def _get_developer_instructions_section(instructions: str) -> str:

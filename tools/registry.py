@@ -163,7 +163,11 @@ def create_default_registry(config: Config) -> ToolRegistry:
     registry = ToolRegistry(config=config)
 
     for tool_class in get_all_builtin_tools():
-        registry.register(tool_class(config))
+        # Special handling for WorkflowTool which needs registry reference
+        if tool_class.__name__ == "WorkflowTool":
+            registry.register(tool_class(config, registry=registry))
+        else:
+            registry.register(tool_class(config))
 
     for subagent_def in get_default_subagent_definitions():
         registry.register(SubagentTool(config, subagent_def))

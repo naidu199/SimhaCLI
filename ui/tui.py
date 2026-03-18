@@ -138,6 +138,7 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/undo", "undo last agent file edit"),
     ("/init", "analyze project & generate instruction files"),
     ("/permissions", "show current tool permissions"),
+    ("/workflow", "run end-to-end development workflow"),
     ("/exit", "exit the session"),
     ("/quit", "exit the session"),
 ]
@@ -1458,6 +1459,7 @@ class TUI:
 - `/resume <session_id>` - Resume a saved session
 - `/undo` - Undo the last file edit made by the agent
 - `/permissions` - View and toggle tool permissions
+- `/workflow` - Run end-to-end development workflow (GitHub -> DB -> Deploy -> Test)
 - `/init` - Analyze project and generate AGENTS.md / SIMHACLI.md
 
 ## Input Controls

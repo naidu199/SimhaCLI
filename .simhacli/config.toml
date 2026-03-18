@@ -1,7 +1,7 @@
 hooks_enabled = true
 
 [model]
-name = "openrouter/hunter-alpha"
+name = "openrouter/healer-alpha"
 
 [[hooks]]
 name = "test_before_tool"
@@ -20,6 +20,30 @@ command = "npx"
 args = [
     "-y",
     "@modelcontextprotocol/server-filesystem",
-    "D:/SimhaCLI",
+    "D:/mine/SimhaCLI",
 ]
 enabled = true
+
+[mcp_servers.github]
+command = "npx"
+args = [
+    "-y",
+    "@modelcontextprotocol/server-github",
+]
+enabled = false
+
+[mcp_servers.postgres]
+command = "npx"
+args = [
+    "-y",
+    "@modelcontextprotocol/server-postgres",
+]
+enabled = false
+
+[mcp_servers.playwright]
+command = "npx"
+args = [
+    "-y",
+    "@executeautomation/playwright-mcp-server",
+]
+enabled = false

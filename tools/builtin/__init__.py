@@ -11,6 +11,7 @@ from tools.builtin.todo import TodosTool
 from tools.builtin.web_fetch import WebFetchTool
 from tools.builtin.web_search import WebSearchTool
 from tools.builtin.write_file import WriteFileTool
+from tools.workflow.workflow_tool import WorkflowTool
 
 __all__ = [
     "ReadFileTool",
@@ -24,6 +25,7 @@ __all__ = [
     "WebFetchTool",
     "TodosTool",
     "MemoryTool",
+    "WorkflowTool",
 ]
 
 
@@ -40,4 +42,5 @@ def get_all_builtin_tools() -> list[Tool]:
         WebFetchTool,
         TodosTool,
         MemoryTool,
+        WorkflowTool,
     ]

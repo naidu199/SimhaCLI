@@ -51,7 +51,7 @@ class SimhaCLI:
                 "Current Usage::",
                 f"Model: {self.config.model.name}",
                 f"CWD: {self.config.cwd}",
-                "Commands: /help, /exit, /config, /approval, /model, /credentials, /permissions, /init",
+                "Commands: /help, /exit, /config, /approval, /model, /credentials, /permissions, /init, /workflow",
                 "",
                 "Shortcuts: @attach file | /commands | q=stop agent",
                 "Input: Enter = submit | Esc+Enter = new line",
@@ -598,6 +598,144 @@ Begin by exploring the project structure."""
             active = len(tools)
             console.print(f"[dim]Active tools: {active}[/dim]")
 
+    async def _handle_workflow_command(self, cmd_args: str) -> None:
+        """Handle /workflow command for end-to-end development workflows."""
+        from rich.panel import Panel
+        from rich.table import Table
+
+        registry = self.agent.session.tool_registry
+
+        if not cmd_args:
+            # Show available workflows
+            console.print()
+            console.print(
+                Panel(
+                    "[bold]Available Workflows[/bold]\n\n"
+                    "[cyan]fullstack[/cyan] - End-to-end app development:\n"
+                    "  1. Create GitHub repository\n"
+                    "  2. Setup PostgreSQL database\n"
+                    "  3. Deploy to Vercel\n"
+                    "  4. Run Playwright tests\n\n"
+                    "[dim]Usage:[/dim]\n"
+                    "  /workflow fullstack <repo_name> <db_name> <project_path>\n\n"
+                    "[dim]Example:[/dim]\n"
+                    '  /workflow fullstack my-app myapp_db ./my-app\n\n'
+                    "[dim]Optional params:[/dim]\n"
+                    "  --description <desc>  - Repo description\n"
+                    "  --private             - Make repo private\n"
+                    "  --test-url <url>      - Custom test URL",
+                    title="[bold yellow]/workflow[/bold yellow]",
+                    border_style="yellow",
+                )
+            )
+            return
+
+        parts = cmd_args.split()
+        workflow_name = parts[0]
+
+        if workflow_name == "fullstack":
+            if len(parts) < 4:
+                console.print("[error]Usage: /workflow fullstack <repo_name> <db_name> <project_path>[/error]")
+                console.print("[dim]Example: /workflow fullstack my-app myapp_db ./my-app[/dim]")
+                return
+
+            repo_name = parts[1]
+            db_name = parts[2]
+            project_path = parts[3]
+
+            # Parse optional arguments
+            repo_description = ""
+            repo_private = False
+            test_url = None
+
+            i = 4
+            while i < len(parts):
+                if parts[i] == "--description" and i + 1 < len(parts):
+                    repo_description = parts[i + 1]
+                    i += 2
+                elif parts[i] == "--private":
+                    repo_private = True
+                    i += 1
+                elif parts[i] == "--test-url" and i + 1 < len(parts):
+                    test_url = parts[i + 1]
+                    i += 2
+                else:
+                    i += 1
+
+            # Check if MCP servers are connected
+            mcp_status = self.agent.session.mcp_manager.get_all_servers()
+            console.print()
+            console.print("[bold cyan]MCP Server Status:[/bold cyan]")
+
+            table = Table(show_header=True, border_style="dim")
+            table.add_column("Server", style="cyan")
+            table.add_column("Status", style="green")
+            table.add_column("Tools", justify="right")
+
+            for server in mcp_status:
+                status_style = "green" if server["status"] == "connected" else "red"
+                table.add_row(
+                    server["name"],
+                    f"[{status_style}]{server['status']}[/{status_style}]",
+                    str(server["tools"]),
+                )
+
+            console.print(table)
+
+            # Execute workflow via the tool
+            workflow_tool = registry.get("workflow")
+            if not workflow_tool:
+                console.print("[error]Workflow tool not available[/error]")
+                return
+
+            console.print()
+            console.print(f"[bold]Running fullstack workflow:[/bold]")
+            console.print(f"  Repo: {repo_name}")
+            console.print(f"  Database: {db_name}")
+            console.print(f"  Project: {project_path}")
+
+            params = {
+                "workflow": "fullstack",
+                "repo_name": repo_name,
+                "db_name": db_name,
+                "project_path": project_path,
+            }
+
+            if repo_description:
+                params["repo_description"] = repo_description
+            if repo_private:
+                params["repo_private"] = True
+            if test_url:
+                params["test_url"] = test_url
+
+            from tools.base import ToolInvocation
+            from pathlib import Path
+
+            invocation = ToolInvocation(
+                params=params,
+                cwd=self.config.cwd,
+            )
+
+            try:
+                result = await workflow_tool.execute(invocation)
+
+                if result.success:
+                    console.print()
+                    console.print("[success]✅ Workflow completed successfully![/success]")
+                    console.print(result.output)
+                else:
+                    console.print()
+                    console.print(f"[error]❌ Workflow failed: {result.error}[/error]")
+                    if result.output:
+                        console.print(result.output)
+
+            except Exception as e:
+                console.print(f"[error]Error executing workflow: {e}[/error]")
+
+        else:
+            console.print(f"[error]Unknown workflow: {workflow_name}[/error]")
+            console.print("[dim]Available workflows: fullstack[/dim]")
+
     async def _handle_command(self, command: str) -> bool:
         cmd = command.lower().strip()
         parts = cmd.split(maxsplit=1)
@@ -819,6 +957,8 @@ Begin by exploring the project structure."""
             await self._handle_init_command(cmd_args)
         elif cmd_name == "/permissions":
             await self._handle_permissions_command(cmd_args)
+        elif cmd_name == "/workflow":
+            await self._handle_workflow_command(cmd_args)
         elif cmd_name == "/undo":
             if not self.agent._undo_stack:
                 console.print("[warning]Nothing to undo.[/warning]")
