@@ -136,3 +136,6 @@ PUBLISHING.md
 # OS
 .DS_Store
 Thumbs.db
+
+# SimhaCLI config (contains API keys, do not commit)
+.simhacli/
