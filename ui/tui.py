@@ -135,7 +135,7 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/restore", "restore a checkpoint"),
     ("/credentials", "manage API key / base URL"),
     ("/creds", "manage API key / base URL"),
-    ("/undo", "undo last agent file edit"),
+    ("/undo", "selectively undo file changes"),
     ("/init", "analyze project & generate instruction files"),
     ("/permissions", "show current tool permissions"),
     ("/workflow", "run end-to-end development workflow"),
@@ -155,25 +155,27 @@ class _CommandCompleter(Completer):
         text = document.text_before_cursor
         if not text.startswith("/"):
             return
-        
+
         # Handle /permissions subcommands
         if text.startswith("/permissions"):
             parts = text.split()
-            
+
             if len(parts) == 1:
                 # "/permissions" or "/permissions "
                 if text.endswith(" "):
                     # Suggest subcommands
                     subcommands = ["allow", "deny", "reset"]
                     for sub in subcommands:
-                        yield Completion(sub, start_position=0, display_meta="subcommand")
+                        yield Completion(
+                            sub, start_position=0, display_meta="subcommand"
+                        )
                     return
                 # Else fall through to command completion logic below
-            
+
             elif len(parts) == 2:
                 # "/permissions allow" or "/permissions allow "
                 subcommand = parts[1]
-                
+
                 if text.endswith(" "):
                     # Suggest tools if allow/deny
                     if subcommand in ["allow", "deny"]:
@@ -183,32 +185,46 @@ class _CommandCompleter(Completer):
                                 status = self._get_tool_status()
                                 for tool_name in tools:
                                     meta = status.get(tool_name, "tool")
-                                    yield Completion(tool_name, start_position=0, display_meta=meta)
+                                    yield Completion(
+                                        tool_name, start_position=0, display_meta=meta
+                                    )
                             else:
                                 for tool_name in tools:
-                                    yield Completion(tool_name, start_position=0, display_meta="tool")
+                                    yield Completion(
+                                        tool_name, start_position=0, display_meta="tool"
+                                    )
                     return
-                
+
                 # Suggest matching subcommands
                 subcommands = ["allow", "deny", "reset"]
                 for sub in subcommands:
                     if sub.startswith(subcommand):
-                        yield Completion(sub, start_position=-len(subcommand), display_meta="subcommand")
+                        yield Completion(
+                            sub,
+                            start_position=-len(subcommand),
+                            display_meta="subcommand",
+                        )
                 return
-            
+
             elif len(parts) == 3:
                 # "/permissions allow read_file"
                 subcommand = parts[1]
                 tool_prefix = parts[2]
-                
+
                 if subcommand in ["allow", "deny"]:
                     if self._get_tools:
                         tools = self._get_tools()
-                        status = self._get_tool_status() if self._get_tool_status else {}
+                        status = (
+                            self._get_tool_status() if self._get_tool_status else {}
+                        )
                         for tool_name in tools:
                             if tool_name.startswith(tool_prefix):
                                 meta = status.get(tool_name, "tool")
-                                yield Completion(tool_name, start_position=-len(tool_prefix), display_meta=meta)
+                                yield Completion(
+                                    tool_name,
+                                    start_position=-len(tool_prefix),
+                                    display_meta=meta,
+                                )
                 return
 
         # Default command completion
@@ -532,7 +548,9 @@ class TUI:
             style=style,
             multiline=True,
             prompt_continuation=lambda width, line_number, is_soft_wrap: "... ",
-            completer=_CombinedCompleter(self.cwd, self._get_tools, self._get_tool_status),
+            completer=_CombinedCompleter(
+                self.cwd, self._get_tools, self._get_tool_status
+            ),
             complete_style=CompleteStyle.MULTI_COLUMN,
             complete_while_typing=True,
         )
@@ -572,6 +590,9 @@ class TUI:
                 (" | ", "dim"),
                 ("/", "cyan bold"),
                 (" commands", "dim"),
+                (" | ", "dim"),
+                ("/undo", "cyan bold"),
+                (" revert", "dim"),
                 (" | ", "dim"),
                 ("q", "cyan bold"),
                 (" stop", "dim"),
@@ -1457,7 +1478,7 @@ class TUI:
 - `/restore <checkpoint_id>` - Restore a checkpoint
 - `/sessions` - List saved sessions
 - `/resume <session_id>` - Resume a saved session
-- `/undo` - Undo the last file edit made by the agent
+- `/undo` - Selectively undo file changes (menu to choose which files)
 - `/permissions` - View and toggle tool permissions
 - `/workflow` - Run end-to-end development workflow (GitHub -> DB -> Deploy -> Test)
 - `/init` - Analyze project and generate AGENTS.md / SIMHACLI.md

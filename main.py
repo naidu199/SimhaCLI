@@ -64,23 +64,33 @@ class SimhaCLI:
                 confirmation_callback=self.tui.handle_confirmation,
             ) as agent:
                 self.agent = agent
-                
+
                 # Setup tool name getter for completions
                 def get_tool_names():
                     if self.agent and self.agent.session:
-                        tools = self.agent.session.tool_registry.get_all_registered_tools()
+                        tools = (
+                            self.agent.session.tool_registry.get_all_registered_tools()
+                        )
                         return sorted([t.name for t in tools])
                     return []
-                
+
                 def get_tool_status():
                     """Get the current permission status of all tools."""
                     if not self.agent or not self.agent.session:
                         return {}
-                    
+
                     tools = self.agent.session.tool_registry.get_all_registered_tools()
-                    denied_set = set(self.config.denied_tools) if self.config.denied_tools else set()
-                    allowed_set = set(self.config.allowed_tools) if self.config.allowed_tools else None
-                    
+                    denied_set = (
+                        set(self.config.denied_tools)
+                        if self.config.denied_tools
+                        else set()
+                    )
+                    allowed_set = (
+                        set(self.config.allowed_tools)
+                        if self.config.allowed_tools
+                        else None
+                    )
+
                     status = {}
                     for tool in tools:
                         if tool.name in denied_set:
@@ -90,9 +100,9 @@ class SimhaCLI:
                         else:
                             status[tool.name] = "allowed"
                     return status
-                
+
                 self.tui.set_tool_getter(get_tool_names, get_tool_status)
-                
+
                 while True:
                     try:
                         # Show input hint below the prompt
@@ -129,7 +139,16 @@ class SimhaCLI:
                             #     console.print("\n[red]Use /exit or /quit to quit[/red]")
                             # continue
 
+                        # Clear undo stack before new query (only track current query's changes)
+                        self.agent._undo_stack.clear()
                         await self._process_message(user_input)
+
+                        # Show undo notification if files were changed
+                        if self.agent._undo_stack:
+                            count = len(self.agent._undo_stack)
+                            console.print(
+                                f"[dim]  {count} file(s) changed. Type /undo to revert.[/dim]"
+                            )
                     except KeyboardInterrupt:
                         console.print("\n[dim]Use /exit, /quit, or 'q' to quit[/dim]")
                     except EOFError:
@@ -508,7 +527,7 @@ Begin by exploring the project structure."""
             console.print()
             console.print(table)
             console.print()
-            
+
             # Show available tool names for allow/deny commands
             tool_names = [t.name for t in sorted_tools]
             console.print("[dim]Available tools:[/dim]")
@@ -619,7 +638,7 @@ Begin by exploring the project structure."""
                     "[dim]Usage:[/dim]\n"
                     "  /workflow fullstack <repo_name> <db_name> <project_path>\n\n"
                     "[dim]Example:[/dim]\n"
-                    '  /workflow fullstack my-app myapp_db ./my-app\n\n'
+                    "  /workflow fullstack my-app myapp_db ./my-app\n\n"
                     "[dim]Optional params:[/dim]\n"
                     "  --description <desc>  - Repo description\n"
                     "  --private             - Make repo private\n"
@@ -635,8 +654,12 @@ Begin by exploring the project structure."""
 
         if workflow_name == "fullstack":
             if len(parts) < 4:
-                console.print("[error]Usage: /workflow fullstack <repo_name> <db_name> <project_path>[/error]")
-                console.print("[dim]Example: /workflow fullstack my-app myapp_db ./my-app[/dim]")
+                console.print(
+                    "[error]Usage: /workflow fullstack <repo_name> <db_name> <project_path>[/error]"
+                )
+                console.print(
+                    "[dim]Example: /workflow fullstack my-app myapp_db ./my-app[/dim]"
+                )
                 return
 
             repo_name = parts[1]
@@ -721,7 +744,9 @@ Begin by exploring the project structure."""
 
                 if result.success:
                     console.print()
-                    console.print("[success]✅ Workflow completed successfully![/success]")
+                    console.print(
+                        "[success]✅ Workflow completed successfully![/success]"
+                    )
                     console.print(result.output)
                 else:
                     console.print()
@@ -970,44 +995,90 @@ Begin by exploring the project structure."""
         elif cmd_name == "/workflow":
             await self._handle_workflow_command(cmd_args)
         elif cmd_name == "/undo":
-            if not self.agent._undo_stack:
-                console.print("[warning]Nothing to undo.[/warning]")
-            else:
-                path_str, old_content, new_content = self.agent._undo_stack.pop()
-                try:
-                    file_path = Path(path_str)
-                    if old_content == "" and file_path.exists():
-                        # File was newly created — delete it
-                        file_path.unlink()
-                        console.print(
-                            f"[success]Undo: deleted newly created file {path_str}[/success]"
-                        )
-                    elif file_path.exists():
-                        current = file_path.read_text(encoding="utf-8")
-                        if current == new_content:
-                            file_path.write_text(old_content, encoding="utf-8")
-                            console.print(
-                                f"[success]Undo: reverted {path_str}[/success]"
-                            )
-                        else:
-                            console.print(
-                                f"[warning]File {path_str} has been modified since the last edit. "
-                                f"Undo skipped to avoid data loss.[/warning]"
-                            )
-                            # Push it back since we didn't undo
-                            self.agent._undo_stack.append(
-                                (path_str, old_content, new_content)
-                            )
-                    else:
-                        console.print(
-                            f"[warning]File {path_str} no longer exists.[/warning]"
-                        )
-                except Exception as e:
-                    console.print(f"[error]Undo failed: {e}[/error]")
+            await self._handle_undo_menu()
         else:
             console.print(f"[error]Unknown command: {cmd_name}[/error]")
 
         return True
+
+    async def _handle_undo_menu(self) -> None:
+        """Display interactive undo menu for selective file reversion."""
+        stack = self.agent._undo_stack
+        if not stack:
+            console.print("[warning]Nothing to undo.[/warning]")
+            return
+
+        # Display list of changed files
+        console.print("\n[bold]Files changed (select to undo):[/bold]")
+        for i, (path_str, old_content, _) in enumerate(stack, 1):
+            file_type = "(new)" if old_content == "" else "(edited)"
+            # Show relative path if possible
+            try:
+                rel_path = Path(path_str).relative_to(self.config.cwd)
+            except ValueError:
+                rel_path = path_str
+            console.print(f"  [cyan][{i}][/cyan] {rel_path} [dim]{file_type}[/dim]")
+
+        console.print("  [cyan]\\[a][/cyan] Undo all")
+        console.print("  [cyan]\\[q][/cyan] Cancel")
+
+        # Get user choice
+        try:
+            choice = await self.tui.get_multiline_input("\nEnter choice: ")
+            choice = choice.strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            console.print("[dim]Cancelled.[/dim]")
+            return
+
+        if choice == "q" or choice == "":
+            console.print("[dim]Cancelled.[/dim]")
+            return
+
+        if choice == "a":
+            # Undo all
+            while self.agent._undo_stack:
+                self._undo_single_file(self.agent._undo_stack.pop())
+            return
+
+        # Try to parse as number
+        try:
+            idx = int(choice)
+            if 1 <= idx <= len(stack):
+                # Remove and undo the selected item
+                item = stack.pop(idx - 1)
+                self._undo_single_file(item)
+            else:
+                console.print(f"[error]Invalid choice: {choice}[/error]")
+        except ValueError:
+            console.print(f"[error]Invalid choice: {choice}[/error]")
+
+    def _undo_single_file(self, item: tuple[str, str, str]) -> None:
+        """Undo a single file change."""
+        path_str, old_content, new_content = item
+        try:
+            file_path = Path(path_str)
+            if old_content == "" and file_path.exists():
+                # File was newly created — delete it
+                file_path.unlink()
+                console.print(
+                    f"[success]Undo: deleted newly created file {path_str}[/success]"
+                )
+            elif file_path.exists():
+                current = file_path.read_text(encoding="utf-8")
+                if current == new_content:
+                    file_path.write_text(old_content, encoding="utf-8")
+                    console.print(f"[success]Undo: reverted {path_str}[/success]")
+                else:
+                    console.print(
+                        f"[warning]File {path_str} has been modified since the last edit. "
+                        f"Undo skipped to avoid data loss.[/warning]"
+                    )
+                    # Push it back since we didn't undo
+                    self.agent._undo_stack.append((path_str, old_content, new_content))
+            else:
+                console.print(f"[warning]File {path_str} no longer exists.[/warning]")
+        except Exception as e:
+            console.print(f"[error]Undo failed: {e}[/error]")
 
 
 @click.command()
