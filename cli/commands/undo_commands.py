@@ -16,7 +16,7 @@ class UndoCommand(Command):
         if not agent or not console:
             return CommandResult(success=False, message="No active agent")
 
-        stack = agent._undo_stack
+        stack = agent.get_undo_stack()
         if not stack:
             console.print("[warning]Nothing to undo.[/warning]")
             return CommandResult(success=True)
@@ -30,8 +30,8 @@ class UndoCommand(Command):
                 rel_path = path_str
             console.print(f"  [cyan][{i}][/cyan] {rel_path} [dim]{file_type}[/dim]")
 
-        console.print("  [cyan][a][/cyan] Undo all")
-        console.print("  [cyan][q][/cyan] Cancel")
+        console.print("  [cyan]\\[a][/cyan] Undo all")
+        console.print("  [cyan]\\[q][/cyan] Cancel")
 
         try:
             choice = await context["tui"].get_multiline_input("\nEnter choice: ")
@@ -45,8 +45,8 @@ class UndoCommand(Command):
             return CommandResult(success=True)
 
         if choice == "a":
-            while agent._undo_stack:
-                self._undo_single_file(agent, context, agent._undo_stack.pop())
+            while agent.has_undo_changes():
+                self._undo_single_file(agent, context, stack.pop())
             return CommandResult(success=True)
 
         try:
@@ -65,14 +65,19 @@ class UndoCommand(Command):
     def get_help(self) -> str:
         return "Undo file changes made in the last operation"
 
-    def _undo_single_file(self, agent: Any, context: dict[str, Any], item: tuple[str, str, str]) -> None:
+    def _undo_single_file(
+        self, agent: Any, context: dict[str, Any], item: tuple[str, str, str]
+    ) -> None:
         path_str, old_content, new_content = item
         console = context["console"]
+        stack = agent.get_undo_stack()
         try:
             file_path = Path(path_str)
             if old_content == "" and file_path.exists():
                 file_path.unlink()
-                console.print(f"[success]Undo: deleted newly created file {path_str}[/success]")
+                console.print(
+                    f"[success]Undo: deleted newly created file {path_str}[/success]"
+                )
             elif file_path.exists():
                 try:
                     current = file_path.read_text(encoding="utf-8")
@@ -86,7 +91,7 @@ class UndoCommand(Command):
                         f"[warning]File {path_str} has been modified since the last edit. "
                         f"Undo skipped to avoid data loss.[/warning]"
                     )
-                    agent._undo_stack.append((path_str, old_content, new_content))
+                    stack.append((path_str, old_content, new_content))
             else:
                 console.print(f"[warning]File {path_str} no longer exists.[/warning]")
         except Exception as e:

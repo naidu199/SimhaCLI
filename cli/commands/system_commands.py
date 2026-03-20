@@ -11,8 +11,15 @@ class HelpCommand(Command):
 
     async def execute(self, args: str, context: dict[str, Any]) -> CommandResult:
         tui = context.get("tui")
+        console = context.get("console")
         if tui:
             tui.show_help()
+        elif console:
+            console.print("[bold]SimhaCLI Help[/bold]")
+            console.print(
+                "Commands: /help, /exit, /config, /model, /approval, /init, /undo, /run"
+            )
+            console.print("Use @ to attach files. Type 'q' to stop the agent.")
         return CommandResult(success=True)
 
     def get_help(self) -> str:

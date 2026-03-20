@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from threading import Lock
 from typing import AsyncGenerator, Awaitable, Callable
 
 from agent.events import AgentEvent, AgentEventType
@@ -29,14 +30,43 @@ class Agent:
         ) = None,
     ) -> None:
         self.config = config
-        self.session: Session | None = Session(config=self.config)
-        self.session.approval_manager.confirmation_callback = confirmation_callback
-        # Track file diffs for /undo support
-        self._undo_stack: list[tuple[str, str, str]] = (
-            []
-        )  # (path, old_content, new_content)
+        self._confirmation_callback = confirmation_callback
+        self.session: Session | None = None  # Created in __aenter__
+        # Track file diffs for /undo support (with thread-safe access)
+        self._undo_stack: list[tuple[str, str, str]] = []  # (path, old_content, new_content)
+        self._undo_lock = Lock()
+
+    # ------------------------------------------------------------------
+    # Undo stack management (thread-safe)
+    # ------------------------------------------------------------------
+    def clear_undo_stack(self) -> None:
+        """Clear the undo stack before processing a new message."""
+        with self._undo_lock:
+            self._undo_stack.clear()
+
+    def get_undo_stack(self) -> list[tuple[str, str, str]]:
+        """Get the current undo stack. Note: Returns direct reference for manipulation."""
+        return self._undo_stack
+
+    def has_undo_changes(self) -> bool:
+        """Check if there are changes that can be undone."""
+        with self._undo_lock:
+            return len(self._undo_stack) > 0
+
+    def get_undo_count(self) -> int:
+        """Get the number of files that can be undone."""
+        with self._undo_lock:
+            return len(self._undo_stack)
+
+    def _append_undo(self, path: str, old_content: str, new_content: str) -> None:
+        """Thread-safe append to undo stack."""
+        with self._undo_lock:
+            self._undo_stack.append((path, old_content, new_content))
 
     async def run(self, message: str) -> AsyncGenerator[AgentEvent, None]:
+        if self.session is None:
+            yield AgentEvent.agent_error("Agent not initialized. Use 'async with Agent(...) as agent:'")
+            return
         await self.session.hook_system.trigger_before_agent(message)
         yield AgentEvent.agent_start(message=message)
         self.session.context_manager.add_user_message(message)
@@ -52,7 +82,7 @@ class Agent:
                 agent_response=final_message or "",
             )
             # Pass cumulative usage so the TUI can display token counts
-            total_usage = self.session.context_manager.get_total_usage
+            total_usage = self.session.context_manager.get_total_usage()
             yield AgentEvent.agent_end(response=final_message, usage=total_usage)
         except Exception as e:
             yield AgentEvent.agent_error(f"Agent encountered an error: {str(e)}")
@@ -158,12 +188,10 @@ class Agent:
 
         # --- Track file diffs for /undo ---
         if result.success and result.diff:
-            self._undo_stack.append(
-                (
-                    str(result.diff.path),
-                    result.diff.old_content,
-                    result.diff.new_content,
-                )
+            self._append_undo(
+                str(result.diff.path),
+                result.diff.old_content,
+                result.diff.new_content,
             )
 
         # --- Truncate oversized tool output ---
@@ -408,6 +436,8 @@ class Agent:
                     loop_description=loop_detector_value,
                 )
                 self.session.context_manager.add_user_message(loop_prompt)
+                # Reset loop detector after intervention to allow fresh actions
+                self.session.loop_detector.clear()
                 continue
 
             if usage:
@@ -421,6 +451,9 @@ class Agent:
         )
 
     async def __aenter__(self) -> Agent:
+        # Create session when entering context
+        self.session = Session(config=self.config)
+        self.session.approval_manager.confirmation_callback = self._confirmation_callback
         await self.session.initialize()
         return self
 

@@ -120,11 +120,11 @@ class SimhaCLI:
                                 return None
                             continue
 
-                        self.agent._undo_stack.clear()
+                        self.agent.clear_undo_stack()
                         await self._process_message(user_input)
 
-                        if self.agent._undo_stack:
-                            count = len(self.agent._undo_stack)
+                        if self.agent.has_undo_changes():
+                            count = self.agent.get_undo_count()
                             console.print(f"[dim]  {count} file(s) changed. Type /undo to revert.[/dim]")
 
                     except KeyboardInterrupt:

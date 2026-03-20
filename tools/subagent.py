@@ -4,6 +4,60 @@ from config.config import Config
 from tools.base import Tool, ToolInvocation, ToolResult
 from dataclasses import dataclass
 from pydantic import BaseModel, Field
+from threading import Lock
+
+# Use the shared console from TUI
+from ui.tui import get_console
+
+
+class SubagentStatusManager:
+    """Manages parallel subagent status display."""
+
+    _instance = None
+    _lock = Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+        self._initialized = True
+        self._statuses: dict[str, str] = {}  # {name: last_status}
+        self._status_lock = Lock()
+
+    def start(self, name: str):
+        """Register a new subagent starting."""
+        with self._status_lock:
+            self._statuses[name] = "Starting..."
+            get_console().print(f"  [cyan]⚡ {name}[/cyan] [dim]Starting...[/dim]")
+
+    def update(self, name: str, status: str, style: str = "dim"):
+        """Update a subagent's status."""
+        with self._status_lock:
+            # Only print if status changed
+            if self._statuses.get(name) != status:
+                self._statuses[name] = status
+                get_console().print(f"  [cyan]⚡ {name}[/cyan] [{style}]{status}[/style]")
+
+    def complete(self, name: str, success: bool = True):
+        """Mark a subagent as complete."""
+        with self._status_lock:
+            if success:
+                get_console().print(f"  [cyan]⚡ {name}[/cyan] [green]✓ Done[/green]")
+            else:
+                get_console().print(f"  [cyan]⚡ {name}[/cyan] [red]✗ Failed[/red]")
+            if name in self._statuses:
+                del self._statuses[name]
+
+
+# Global status manager instance
+status_manager = SubagentStatusManager()
 
 
 class SubagentParams(BaseModel):
@@ -74,6 +128,10 @@ class SubagentTool(Tool):
         final_response = None
         error = None
         terminate_response = "goal"
+        agent_name = self.definition.name
+
+        # Register with shared status manager
+        status_manager.start(agent_name)
 
         try:
             async with Agent(subagent_config) as agent:
@@ -85,10 +143,23 @@ class SubagentTool(Tool):
                     if asyncio.get_event_loop().time() > deadline:
                         terminate_response = "timeout"
                         final_response = "Sub-agent timed out"
+                        status_manager.update(agent_name, "⏱ Timeout", "yellow")
                         break
 
-                    if event.type == AgentEventType.TOOL_CALL_START:
-                        tool_calls.append(event.data.get("name"))
+                    if event.type == AgentEventType.THINKING_DELTA:
+                        status_manager.update(agent_name, "Thinking...", "cyan")
+                    elif event.type == AgentEventType.TOOL_CALL_START:
+                        tool_name = event.data.get("name", "unknown")
+                        tool_calls.append(tool_name)
+                        status_manager.update(agent_name, f"→ {tool_name}", "yellow")
+                    elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+                        tool_name = event.data.get("name", "unknown")
+                        success = event.data.get("success", False)
+                        style = "green" if success else "red"
+                        mark = "✓" if success else "✗"
+                        status_manager.update(agent_name, f"{mark} {tool_name}", style)
+                    elif event.type == AgentEventType.TEXT_DELTA:
+                        status_manager.update(agent_name, "Writing...", "blue")
                     elif event.type == AgentEventType.TEXT_COMPLETE:
                         final_response = event.data.get("content")
                     elif event.type == AgentEventType.AGENT_END:
@@ -99,10 +170,14 @@ class SubagentTool(Tool):
                         error = event.data.get("error", "Unknown")
                         final_response = f"Sub-agent error: {error}"
                         break
+
+            status_manager.complete(agent_name, success=(error is None))
+
         except Exception as e:
             terminate_response = "error"
             error = str(e)
             final_response = f"Sub-agent failed: {e}"
+            status_manager.complete(agent_name, success=False)
 
         result = f"""Sub-agent '{self.definition.name}' completed.
         Termination: {terminate_response}
