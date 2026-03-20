@@ -51,7 +51,7 @@ class SimhaCLI:
                 "Current Usage::",
                 f"Model: {self.config.model.name}",
                 f"CWD: {self.config.cwd}",
-                "Commands: /help, /exit, /config, /approval, /model, /credentials, /permissions, /init, /workflow",
+                "Commands: /help, /exit, /config, /approval, /model, /credentials, /permissions, /init, /workflow, /undo, /run",
                 "",
                 "Shortcuts: @attach file | /commands | q=stop agent",
                 "Input: Enter = submit | Esc+Enter = new line",
@@ -996,6 +996,8 @@ Begin by exploring the project structure."""
             await self._handle_workflow_command(cmd_args)
         elif cmd_name == "/undo":
             await self._handle_undo_menu()
+        elif cmd_name == "/run" or cmd_name == "/!":
+            await self._handle_run_command(cmd_args)
         else:
             console.print(f"[error]Unknown command: {cmd_name}[/error]")
 
@@ -1079,6 +1081,44 @@ Begin by exploring the project structure."""
                 console.print(f"[warning]File {path_str} no longer exists.[/warning]")
         except Exception as e:
             console.print(f"[error]Undo failed: {e}[/error]")
+
+    async def _handle_run_command(self, cmd_args: str) -> None:
+        """Execute a terminal command directly."""
+        import subprocess
+
+        if not cmd_args.strip():
+            # Prompt for command if not provided
+            try:
+                cmd_args = await self.tui.get_multiline_input("Enter command: ")
+                cmd_args = cmd_args.strip()
+            except (KeyboardInterrupt, EOFError):
+                console.print("[dim]Cancelled.[/dim]")
+                return
+
+        if not cmd_args:
+            console.print("[warning]No command provided.[/warning]")
+            return
+
+        console.print(f"[dim]$ {cmd_args}[/dim]")
+        try:
+            result = subprocess.run(
+                cmd_args,
+                shell=True,
+                capture_output=True,
+                text=True,
+                cwd=str(self.config.cwd),
+                timeout=120,
+            )
+            if result.stdout:
+                console.print(result.stdout.rstrip())
+            if result.stderr:
+                console.print(f"[yellow]{result.stderr.rstrip()}[/yellow]")
+            if result.returncode != 0:
+                console.print(f"[dim]Exit code: {result.returncode}[/dim]")
+        except subprocess.TimeoutExpired:
+            console.print("[error]Command timed out (120s)[/error]")
+        except Exception as e:
+            console.print(f"[error]Error: {e}[/error]")
 
 
 @click.command()
