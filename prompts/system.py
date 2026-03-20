@@ -109,18 +109,32 @@ def _get_shell_info() -> str:
 
 def _get_agents_md_section() -> str:
     """Generate AGENTS.md spec section."""
-    return """# AGENTS.md Specification
+    return """# Project Instruction Files
 
-- Repos often contain AGENTS.md files. These files can appear anywhere within the repository.
-- These files are a way for humans to give you (the agent) instructions or tips for working within the container.
-- Some examples might be: coding conventions, info about how code is organized, or instructions for how to run or test code.
-- Instructions in AGENTS.md files:
-    - The scope of an AGENTS.md file is the entire directory tree rooted at the folder that contains it.
-    - For every file you touch in the final patch, you must obey instructions in any AGENTS.md file whose scope includes that file.
-    - Instructions about code style, structure, naming, etc. apply only to code within the AGENTS.md file's scope, unless the file states otherwise.
-    - More-deeply-nested AGENTS.md files take precedence in the case of conflicting instructions.
-    - Direct system/developer/user instructions (as part of a prompt) take precedence over AGENTS.md instructions.
-- The contents of the AGENTS.md file at the root of the repo and any directories from the CWD up to the root are included with the developer message and don't need to be re-read. When working in a subdirectory of CWD, or a directory outside the CWD, check for any AGENTS.md files that may be applicable."""
+## Important Files to Check First
+When user asks about project details, architecture, conventions, or "what does this project do":
+1. **First check for these files** in the project root:
+   - `AGENTS.md` (coding conventions, project structure, how to run/test)
+   - `SIMHACLI.md` (project-specific SimhaCLI instructions)
+
+2. **If files exist**, read them first before exploring the codebase.
+
+3. **If files not found**:
+   - Complete the user's task first - don't interrupt
+   - After finishing the task, suggest at the END:
+     "I noticed your project doesn't have instruction files yet. Want me to generate them?
+     - **AGENTS.md**: Documents coding conventions, project structure, testing (helps any AI agent)
+     - **SIMHACLI.md**: Project-specific instructions for SimhaCLI sessions
+
+     These help me understand your project better in future sessions. Select which to create: [1] AGENTS.md [2] SIMHACLI.md [3] Both [4] Skip"
+   - If user selects, run the `/init` command to generate the selected file(s)
+
+## AGENTS.md Specification
+- These files give instructions/tips for working within the repository
+- Examples: coding conventions, code organization, how to run/test
+- The scope is the entire directory tree rooted at the folder containing it
+- More-deeply-nested AGENTS.md files take precedence over parent ones
+- Direct system/user instructions take precedence over AGENTS.md"""
 
 
 def _get_security_section() -> str:
