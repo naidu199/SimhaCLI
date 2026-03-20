@@ -32,8 +32,9 @@ class MessageItem:
 
 
 class ContextManager:
-    PRUNE_PROTECT_TOKENS = 40000  # Minimum tokens to protect from pruning
-    PRUNE_MINIMUM_TOKENS = 20000  # Minimum tokens to prune
+    PRUNE_PROTECT_TOKENS = 20000  # Protect last 20k tokens from pruning
+    PRUNE_MINIMUM_TOKENS = 7500  # Prune if >5k tokens can be saved
+    COMPRESSION_THRESHOLD = 0.75  # Trigger compression at 75% of context window
 
     def __init__(
         self,
@@ -116,11 +117,33 @@ class ContextManager:
 
         return messages
 
-    def needs_compression(self) -> bool:
-        context_limit = self._config.model.context_window
-        current_tokens = self._latest_usage.total_tokens
+    def get_current_token_count(self) -> int:
+        """Calculate actual token count of all messages including system prompt."""
+        total = 0
 
-        return current_tokens > (context_limit * 0.8)
+        # Count system prompt tokens
+        if self._system_prompt:
+            total += count_tokens(self._system_prompt, self._model_name)
+
+        # Count all message tokens
+        for msg in self._messages:
+            if msg.token_count:
+                total += msg.token_count
+            else:
+                total += count_tokens(msg.content, self._model_name)
+
+        return total
+
+    def needs_compression(self) -> bool:
+        """Check if context needs compression based on actual token count."""
+        context_limit = self._config.model.context_window
+        current_tokens = self.get_current_token_count()
+
+        # Use latest API usage if available and higher (more accurate)
+        if self._latest_usage.total_tokens > current_tokens:
+            current_tokens = self._latest_usage.total_tokens
+
+        return current_tokens > (context_limit * self.COMPRESSION_THRESHOLD)
 
     def set_latest_usage(self, usage: TokenUsage):
         self._latest_usage = usage
@@ -225,6 +248,16 @@ I'll continue with the REMAINING tasks only, starting from where we left off."""
             pruned_count += 1
 
         return pruned_count
+
+    def needs_pruning(self) -> bool:
+        """Check if pruning is needed (at 75% of context window, before compression)."""
+        context_limit = self._config.model.context_window
+        current_tokens = self.get_current_token_count()
+
+        if self._latest_usage.total_tokens > current_tokens:
+            current_tokens = self._latest_usage.total_tokens
+
+        return current_tokens > (context_limit * 0.75)
 
     def clear(self) -> None:
         self._messages = []

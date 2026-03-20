@@ -215,8 +215,19 @@ class Agent:
             response_text = ""
             usage: TokenUsage | None = None
 
+            # Prune old tool outputs at 75% to avoid hitting compression
+            if self.session.context_manager.needs_pruning():
+                pruned = self.session.context_manager.prune_tool_outputs()
+                if pruned > 0:
+                    yield AgentEvent.text_delta(
+                        f"\n[dim]Pruned {pruned} old tool outputs to save context.[/dim]\n"
+                    )
+
             # Check for context overflow and compress if necessary
             if self.session.context_manager.needs_compression():
+                yield AgentEvent.text_delta(
+                    "\n[dim]Context limit approaching, compressing conversation...[/dim]\n"
+                )
                 summary, usage = await self.session.chat_compressor.compress(
                     self.session.context_manager
                 )
@@ -224,6 +235,9 @@ class Agent:
                     self.session.context_manager.replace_with_summary(summary)
                     self.session.context_manager.set_latest_usage(usage)
                     self.session.context_manager.add_usage(usage)
+                    yield AgentEvent.text_delta(
+                        "[dim]Conversation compressed. Continuing...[/dim]\n"
+                    )
 
             tool_schema = self.session.tool_registry.get_schemas()
             tool_calls: list[ToolCall] = []

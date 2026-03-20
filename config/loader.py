@@ -133,7 +133,7 @@ def _initialize_project_dir(cwd: Path) -> None:
 [model]
 name = "openrouter/free"
 # temperature = 1.0              # Creativity level (0.0-2.0, higher = more creative)
-# context_window = 256000        # Maximum context size
+context_window = 256000          # Maximum context size
 
 # Popular free models on OpenRouter:
 # - "openrouter/free" (access to multiple free models)

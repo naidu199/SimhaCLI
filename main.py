@@ -43,7 +43,7 @@ class SimhaCLI:
         self.tui.print_welcome(
             title="SimhaCLI 🦁 — AI Coding Agent",
             lines=[
-                "Built by Narasimha Naidu Korrapti",
+                "Built by Narasimha Naidu Korrapati",
                 "",
                 "SimhaCLI is a powerful AI coding agent that runs inside your terminal.",
                 "It connects to multiple large language models and uses tools to think, read, and act.",
@@ -162,14 +162,12 @@ class SimhaCLI:
         console.print("\n[brand]Thank You!... SIMHACLI 🦁[/brand]")
 
     def _get_tool_kind(self, tool_name: str) -> str | None:
-        tool_kind = None
         tool = self.agent.session.tool_registry.get(tool_name)
         if not tool:
-            tool_kind = None
+            return None
 
-        tool_kind = tool.kind.value if tool else None
-
-        return tool_kind
+        kind = getattr(tool, "kind", None)
+        return kind.value if kind else None
 
     async def _process_message(self, message: str) -> str | None:
         if self.agent is None:
@@ -771,9 +769,12 @@ Begin by exploring the project structure."""
         elif cmd_name == "/help":
             self.tui.show_help()
         elif cmd_name == "/clear":
-            self.agent.session.context_manager.clear()
-            self.agent.session.loop_detector.clear()
-            console.print("[success]Conversation cleared [/success]")
+            if not self.agent or not self.agent.session:
+                console.print("[warning]No active session to clear.[/warning]")
+            else:
+                self.agent.session.context_manager.clear()
+                self.agent.session.loop_detector.clear()
+                console.print("[success]Conversation cleared [/success]")
         elif cmd_name == "/config":
             console.print("\n[bold]Current Configuration[/bold]")
             console.print(f"  Model: {self.config.model_name}")
@@ -840,7 +841,7 @@ Begin by exploring the project structure."""
                     console.print(
                         f"[success]Approval policy changed to: {cmd_args} [/success]"
                     )
-                except:
+                except ValueError:
                     console.print(
                         f"[error]Incorrect approval policy: {cmd_args} [/error]"
                     )
@@ -1005,6 +1006,10 @@ Begin by exploring the project structure."""
 
     async def _handle_undo_menu(self) -> None:
         """Display interactive undo menu for selective file reversion."""
+        if not self.agent:
+            console.print("[warning]No active agent.[/warning]")
+            return
+
         stack = self.agent._undo_stack
         if not stack:
             console.print("[warning]Nothing to undo.[/warning]")
@@ -1066,7 +1071,10 @@ Begin by exploring the project structure."""
                     f"[success]Undo: deleted newly created file {path_str}[/success]"
                 )
             elif file_path.exists():
-                current = file_path.read_text(encoding="utf-8")
+                try:
+                    current = file_path.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    current = file_path.read_text(encoding="latin-1")
                 if current == new_content:
                     file_path.write_text(old_content, encoding="utf-8")
                     console.print(f"[success]Undo: reverted {path_str}[/success]")
@@ -1160,4 +1168,5 @@ def main(
         pass  # Silently handle, our inner handlers already displayed messages
 
 
-main()
+if __name__ == "__main__":
+    main()
