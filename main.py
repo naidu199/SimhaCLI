@@ -87,6 +87,11 @@ class SimhaCLI:
                 while True:
                     try:
                         self.tui.print_input_hint()
+                        # Show context window usage
+                        if self.agent and self.agent.session:
+                            current_tokens = self.agent.session.context_manager.get_current_token_count()
+                            max_tokens = self.config.model.context_window
+                            self.tui.print_context_usage(current_tokens, max_tokens)
                         user_input = await self.tui.get_multiline_input("> ")
                         if user_input is None:
                             console.print("\n[dim]Use /exit, /quit, or 'q' to quit[/dim]")

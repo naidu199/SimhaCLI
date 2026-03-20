@@ -605,6 +605,36 @@ class TUI:
             )
         )
 
+    def print_context_usage(self, current_tokens: int, max_tokens: int) -> None:
+        """Print context window usage below input hint."""
+        if max_tokens <= 0:
+            return
+
+        percentage = (current_tokens / max_tokens) * 100
+
+        # Color based on usage
+        if percentage < 50:
+            color = "green"
+        elif percentage < 75:
+            color = "yellow"
+        else:
+            color = "red"
+
+        # Format numbers with commas
+        current_fmt = f"{current_tokens:,}"
+        max_fmt = f"{max_tokens:,}"
+
+        self.console.print(
+            Text.assemble(
+                ("  Context: ", "dim"),
+                (current_fmt, color),
+                (" / ", "dim"),
+                (max_fmt, "dim"),
+                (" tokens ", "dim"),
+                (f"({percentage:.1f}%)", color),
+            )
+        )
+
     def print_welcome(self, title: str, lines: list[str]) -> None:
         body = "\n".join(lines)
         BANNER = """
