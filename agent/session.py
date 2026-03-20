@@ -97,7 +97,7 @@ class Session:
                 self.context_manager.get_message_count() if self.context_manager else 0
             ),
             "token_usage": (
-                self.context_manager.get_total_usage() if self.context_manager else None
+                self.context_manager.get_total_usage if self.context_manager else None
             ),
             "tools_available": len(self.tool_registry.get_tools()),
             "mcp_servers": self.tool_registry.connected_mcp_servers,

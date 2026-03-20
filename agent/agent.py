@@ -82,7 +82,7 @@ class Agent:
                 agent_response=final_message or "",
             )
             # Pass cumulative usage so the TUI can display token counts
-            total_usage = self.session.context_manager.get_total_usage()
+            total_usage = self.session.context_manager.get_total_usage
             yield AgentEvent.agent_end(response=final_message, usage=total_usage)
         except Exception as e:
             yield AgentEvent.agent_error(f"Agent encountered an error: {str(e)}")
