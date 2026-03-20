@@ -259,26 +259,28 @@ enabled = true
 
 Type any of these during an interactive session:
 
-| Command              | Description                                                  |
-| -------------------- | ------------------------------------------------------------ |
-| `/help`              | Show all commands                                            |
-| `/exit` / `/quit`    | Exit SimhaCLI                                                |
-| `/clear`             | Clear conversation history                                   |
-| `/model <name>`      | Switch model (saves to project config)                       |
-| `/approval <policy>` | Change approval policy                                       |
-| `/config`            | Show current configuration                                   |
-| `/credentials`       | View or update API key / base URL                            |
-| `/tools`             | List all available tools                                     |
-| `/mcp`               | Show MCP server connection status                            |
-| `/stats`             | Show session statistics and token usage                      |
-| `/save`              | Save current session to disk                                 |
-| `/sessions`          | List all saved sessions                                      |
-| `/resume <id>`       | Resume a previously saved session                            |
-| `/checkpoint`        | Create a checkpoint of the current session                   |
-| `/restore <id>`      | Restore a checkpoint                                         |
-| `/undo`              | Undo the last file edit                                      |
-| `/init`              | Analyze project and generate AGENTS.md and SIMHACLI.md files |
-| `/permissions`       | Manage tool access permissions                               |
+| Command                     | Description                                                  |
+| --------------------------- | ------------------------------------------------------------ |
+| `/help`                     | Show all commands                                            |
+| `/exit` / `/quit`           | Exit SimhaCLI                                                |
+| `/clear`                    | Clear conversation history                                   |
+| `/config`                   | Display current configuration                                |
+| `/stats`                    | Show session statistics and token usage                      |
+| `/tools`                    | List available tools                                         |
+| `/mcp`                      | Show MCP server connection status                            |
+| `/model <name>`             | Switch model (saves to project config)                       |
+| `/approval <policy>`        | Change approval policy                                       |
+| `/credentials` / `/creds`   | View or update API key / base URL                            |
+| `/permissions`              | Manage tool access permissions (allow/deny/reset)            |
+| `/init`                     | Analyze project and generate AGENTS.md and SIMHACLI.md files |
+| `/save`                     | Save current session to disk                                 |
+| `/sessions`                 | List all saved sessions                                      |
+| `/resume <id>`              | Resume a previously saved session                            |
+| `/checkpoint`               | Create a checkpoint of the current session                   |
+| `/restore <id>`             | Restore a checkpoint                                         |
+| `/undo`                     | Undo the last file edit (interactive selective revert)       |
+| `/run <command>` / `!<cmd>` | Execute a terminal command directly                          |
+| `/workflow <name> [args]`   | Run development workflows (fullstack, github, push, etc.)    |
 
 ---
 
@@ -319,6 +321,21 @@ Options:
 
 ## 📝 Changelog
 
+### v1.4.0 (March 20, 2026)
+
+- **Complete Command System Overhaul**: New Command pattern with registry for better extensibility
+- **New Commands**:
+  - `/undo` – Undo file changes with interactive selective revert menu
+  - `/run <command>` / `!<cmd>` – Execute terminal commands directly
+  - `/workflow <name> [args]` – Run development workflows (fullstack, github, push, etc.)
+
+- **Live Context Usage Display**: See real-time token count vs context window in TUI
+- **Enhanced Context Management**: Actual token counting, pruning at 75%, improved compression at 75% threshold
+- **Improved Undo**: Interactive menu for selective file reversion with safety checks
+- **Better Model Switching**: `/model` now preserves config file comments and updates system prompt
+- **Refactored Architecture**: Cleaner separation with CommandHandler and command registry
+- **Enhanced Error Messages**: System prompts include context management feedback
+
 ### v1.3.0 (March 18, 2026)
 
 - **Development Workflows**: 10 end-to-end workflow actions (fullstack, github, push, install_deps, env_setup, build, readme, database, deploy, tests)
@@ -356,6 +373,8 @@ Options:
 - **PyPI**: https://pypi.org/project/simhacli/
 - **GitHub**: https://github.com/naidu199/SimhaCLI
 - **Developer**: [Narasimha Naidu Korrapati on LinkedIn](https://www.linkedin.com/in/narasimhanaidukorrapati/)
+- **MCP Setup Guide**: See `MCP_SETUP_GUIDE.md` for detailed MCP configuration
+- **Publishing Guide**: See `PUBLISHING.md` for PyPI deployment instructions
 
 ---
 

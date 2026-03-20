@@ -4,12 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simhacli"
-version = "1.3.1"
+version = "1.4.0"
 description = "SimhaCLI 🦁 — AI Coding Agent that runs inside your terminal"
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Narasimha Naidu Korrapati" }]
-keywords = ["ai", "cli", "agent", "coding", "llm", "terminal"]
+keywords = [
+	"ai",
+	"cli",
+	"llm",
+	"developer-tools",
+	"agentic-ai",
+	"ai-agents",
+	"autonomous-agents",
+	"ai-coding",
+	"code-generation",
+	"developer-productivity",
+	"terminal-ai",
+	"cli-tool",
+	"shell-assistant",
+	"copilot-alternative",
+	"ai-workflows",
+]
 classifiers = [
 	"Development Status :: 4 - Beta",
 	"Environment :: Console",
