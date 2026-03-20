@@ -12,6 +12,7 @@ from .commands import (
     McpCommand,
     ExitCommand,
     QuitCommand,
+    VersionCommand,
     ModelCommand,
     ApprovalCommand,
     CredentialsCommand,
@@ -43,6 +44,7 @@ def create_command_registry() -> CommandRegistry:
     registry.register(McpCommand())
     registry.register(ExitCommand())
     registry.register(QuitCommand())
+    registry.register(VersionCommand())
 
     # Model/approval commands
     registry.register(ModelCommand())

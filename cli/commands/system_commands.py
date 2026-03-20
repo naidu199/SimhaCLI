@@ -1,4 +1,4 @@
-"""System commands: /help, /exit, /config, /clear, /stats, /tools, /mcp."""
+"""System commands: /help, /exit, /config, /clear, /stats, /tools, /mcp, /version."""
 
 from .base import Command, CommandResult
 from typing import Any
@@ -148,3 +148,24 @@ class McpCommand(Command):
 
     def get_help(self) -> str:
         return "Show MCP server status"
+
+
+class VersionCommand(Command):
+    @property
+    def name(self) -> str:
+        return "/version"
+
+    async def execute(self, args: str, context: dict[str, Any]) -> CommandResult:
+        try:
+            from __init__ import __version__
+        except ImportError:
+            # Fallback if import fails
+            __version__ = "unknown"
+        console = context.get("console")
+        if console:
+            console.print(f"\n[bold]SimhaCLI[/bold] version [cyan]{__version__}[/cyan]")
+            console.print("Built by [cyan]Narasimha Naidu Korrapati[/cyan]")
+        return CommandResult(success=True)
+
+    def get_help(self) -> str:
+        return "Display SimhaCLI version"

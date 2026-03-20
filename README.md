@@ -356,7 +356,7 @@ Options:
 - **Enhanced Error Handling**: Improved error handling and logging throughout the agent
 - **Tool Permission Status**: TUI now displays tool permission status (allowed/denied)
 
-### v1.1.4 (March 16, 2026)
+### v1.1.0 (January 27, 2026)
 
 - Initial public release on PyPI
 - 16 built-in tools for file operations, shell commands, web access, and sub-agents

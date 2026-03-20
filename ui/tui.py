@@ -1495,6 +1495,7 @@ class TUI:
 ## Commands
 
 - `/help` - Show this help
+- `/version` - Show SimhaCLI version
 - `/exit` or `/quit` - Exit the agent
 - `q` - Stop agent & return to input (Ctrl+C also works)
 - `/clear` - Clear conversation history

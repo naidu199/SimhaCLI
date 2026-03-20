@@ -14,6 +14,7 @@ from utils.file_attachments import (
 
 from cli.factory import create_command_registry
 from cli.command_handler import CommandHandler
+from __init__ import __version__
 
 console = get_console()
 
@@ -45,7 +46,7 @@ class SimhaCLI:
                 "Current Usage:",
                 f"Model: {self.config.model.name}",
                 f"CWD: {self.config.cwd}",
-                "Commands: /help, /exit, /config, /approval, /model, /credentials, /permissions, /init, /workflow, /undo, /run",
+                "Commands: /help, /version, /exit, /config, /approval, /model, /credentials, /permissions, /init, /workflow, /undo, /run",
                 "",
                 "Shortcuts: @attach file | /commands | q=stop agent",
                 "Input: Enter = submit | Esc+Enter = new line",
@@ -281,10 +282,22 @@ class SimhaCLI:
     help="Set the current working directory for the agent.",
     default=None,
 )
+@click.option(
+    "--version",
+    "-v",
+    is_flag=True,
+    help="Show SimhaCLI version and exit.",
+)
 def main(
     prompt: str | None = None,
     cwd: Path | None = None,
+    version: bool = False,
 ):
+    if version:
+        console.print(f"SimhaCLI [cyan]{__version__}[/cyan]")
+        console.print("Built by [cyan]Narasimha Naidu Korrapati[/cyan]")
+        sys.exit(0)
+
     try:
         config = load_config(cwd=cwd)
     except Exception as e:
