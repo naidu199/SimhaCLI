@@ -25,6 +25,7 @@ class SimhaCLI:
         self.tui: TUI = TUI(console=console, config=config)
         self.agent: Agent | None = None
         self.command_handler = CommandHandler(create_command_registry())
+        self._stop_requested = False
 
     async def run_single(self, message: str) -> str | None:
         try:
@@ -144,6 +145,7 @@ class SimhaCLI:
             print("Agent is not initialized.")
             return None
 
+        self._stop_requested = False
         _, attachments = parse_attachments(message, self.config.cwd)
 
         if attachments:
@@ -158,40 +160,71 @@ class SimhaCLI:
         thinking_active = False
         self.tui.start_request_timer()
 
-        async for event in self.agent.run(formatted_message):
-            event_type = event.type
+        try:
+            async for event in self.agent.run(formatted_message):
+                # Check for stop request
+                if self._check_stop_input():
+                    self._stop_requested = True
+                    if thinking_active:
+                        self.tui.end_thinking()
+                    if text_started:
+                        self.tui.end_assistant()
+                    console.print("\n[yellow]Agent stopped by user (q).[/yellow]")
+                    return "stopped"
 
-            if event_type == AgentEventType.THINKING_DELTA:
-                self._handle_thinking_delta(event, thinking_active)
-                thinking_active = True
-            elif event_type == AgentEventType.THINKING_COMPLETE:
-                thinking_active = self._handle_thinking_complete(thinking_active)
-            elif event_type == AgentEventType.TEXT_DELTA:
-                thinking_active, text_started = await self._handle_text_delta(
-                    event, thinking_active, text_started
-                )
-            elif event_type == AgentEventType.TEXT_COMPLETE:
-                text_started = self._handle_text_complete(text_started)
-                response_content = event.data.get("content", "")
-            elif event_type == AgentEventType.AGENT_START:
-                msg = event.data.get("message", "")
-                self.tui.agent_start(msg)
-            elif event_type == AgentEventType.AGENT_END:
-                usage = event.data.get("usage")
-                self.tui.agent_end(usage)
-            elif event_type == AgentEventType.AGENT_ERROR:
-                error_msg = event.data.get("message", "Unknown error")
-                self.tui.display_error(error_message=error_msg)
-                return None
-            elif event_type == AgentEventType.TOOL_CALL_START:
-                self._handle_tool_call_start(event)
-            elif event_type == AgentEventType.TOOL_CALL_COMPLETE:
-                self._handle_tool_call_complete(event)
-            else:
-                # Default case for any future/unknown event types
-                self._handle_unknown_event(event)
+                event_type = event.type
+
+                if event_type == AgentEventType.THINKING_DELTA:
+                    self._handle_thinking_delta(event, thinking_active)
+                    thinking_active = True
+                elif event_type == AgentEventType.THINKING_COMPLETE:
+                    thinking_active = self._handle_thinking_complete(thinking_active)
+                elif event_type == AgentEventType.TEXT_DELTA:
+                    thinking_active, text_started = await self._handle_text_delta(
+                        event, thinking_active, text_started
+                    )
+                elif event_type == AgentEventType.TEXT_COMPLETE:
+                    text_started = self._handle_text_complete(text_started)
+                    response_content = event.data.get("content", "")
+                elif event_type == AgentEventType.AGENT_START:
+                    msg = event.data.get("message", "")
+                    self.tui.agent_start(msg)
+                elif event_type == AgentEventType.AGENT_END:
+                    usage = event.data.get("usage")
+                    self.tui.agent_end(usage)
+                elif event_type == AgentEventType.AGENT_ERROR:
+                    error_msg = event.data.get("message", "Unknown error")
+                    self.tui.display_error(error_message=error_msg)
+                    return None
+                elif event_type == AgentEventType.TOOL_CALL_START:
+                    self._handle_tool_call_start(event)
+                elif event_type == AgentEventType.TOOL_CALL_COMPLETE:
+                    self._handle_tool_call_complete(event)
+                else:
+                    # Default case for any future/unknown event types
+                    self._handle_unknown_event(event)
+        except asyncio.CancelledError:
+            console.print("\n[yellow]Agent execution cancelled.[/yellow]")
+            return "cancelled"
 
         return response_content if response_content else "completed"
+
+    def _check_stop_input(self) -> bool:
+        """Check if 'q' was pressed to stop agent execution (non-blocking)."""
+        import sys
+        if sys.platform == "win32":
+            import msvcrt
+            if msvcrt.kbhit():
+                key = msvcrt.getch()
+                if key in (b'q', b'Q'):
+                    return True
+        else:
+            import select
+            if select.select([sys.stdin], [], [], 0.0)[0]:
+                key = sys.stdin.read(1)
+                if key.lower() == 'q':
+                    return True
+        return False
 
     def _handle_thinking_delta(self, event: any, thinking_active: bool) -> None:
         """Handle thinking delta events."""

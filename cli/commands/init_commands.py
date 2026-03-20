@@ -16,7 +16,8 @@ class InitCommand(Command):
         config = context.get("config")
         agent = context.get("agent")
         console = context.get("console")
-        if not config or not agent or not console:
+        tui = context.get("tui")
+        if not config or not agent or not console or not tui:
             return CommandResult(success=False, message="Missing context")
 
         project_dir = config.cwd
@@ -37,13 +38,22 @@ class InitCommand(Command):
             "  [cyan]2[/cyan] — SIMHACLI.md (SimhaCLI-specific project config)"
         )
         console.print("  [cyan]3[/cyan] — Both")
+        console.print("  [cyan]c[/cyan] — Cancel")
         console.print()
 
-        choice = Prompt.ask(
-            "[bold yellow]Select[/bold yellow]",
-            choices=["1", "2", "3"],
-            default="3",
-        )
+        try:
+            choice = Prompt.ask(
+                "[bold yellow]Select[/bold yellow]",
+                choices=["1", "2", "3", "c"],
+                default="3",
+            )
+        except KeyboardInterrupt:
+            console.print("\n[dim]Cancelled.[/dim]")
+            return CommandResult(success=True, message="Cancelled")
+
+        if choice == "c":
+            console.print("[dim]Cancelled.[/dim]")
+            return CommandResult(success=True, message="Cancelled")
 
         file_targets = []
         if choice in ("1", "3"):
@@ -66,8 +76,8 @@ class InitCommand(Command):
 
         init_prompt = self._build_init_prompt(project_dir, file_targets)
 
-        # Use the agent directly to process this message
-        result = await self._process_message(agent, config, init_prompt)
+        # Use the agent directly to process this message with visual feedback
+        result = await self._process_message(agent, config, init_prompt, console, tui)
         return CommandResult(success=True)
 
     def _build_init_prompt(self, project_dir: Path, file_targets: list[str]) -> str:
@@ -124,31 +134,75 @@ class InitCommand(Command):
 
 Begin by exploring the project structure."""
 
-    async def _process_message(self, agent: Any, config: Any, message: str) -> str:
-        """Process a message through the agent. Simplified version for /init."""
+    async def _process_message(
+        self, agent: Any, config: Any, message: str, console: Any, tui: Any
+    ) -> str:
+        """Process a message through the agent with visual feedback."""
         from agent.events import AgentEventType
-        import asyncio
 
         response_content = ""
         text_started = False
         thinking_active = False
 
-        async for event in agent.run(message):
-            if event.type == AgentEventType.THINKING_DELTA:
-                if not thinking_active:
-                    thinking_active = True
-            elif event.type == AgentEventType.THINKING_COMPLETE:
-                thinking_active = False
-            elif event.type == AgentEventType.TEXT_DELTA:
-                if thinking_active:
-                    thinking_active = False
-                if not text_started:
-                    text_started = True
-                content = event.data.get("content", "")
-            elif event.type == AgentEventType.TEXT_COMPLETE:
-                response_content = event.data.get("content", "")
-            elif event.type == AgentEventType.AGENT_ERROR:
-                return f"Error: {event.data.get('message', 'Unknown error')}"
+        tui.start_request_timer()
+
+        try:
+            async for event in agent.run(message):
+                if event.type == AgentEventType.THINKING_DELTA:
+                    if not thinking_active:
+                        tui.begin_thinking()
+                        thinking_active = True
+                    tui.stream_thinking_delta(event.data.get("content", ""))
+                elif event.type == AgentEventType.THINKING_COMPLETE:
+                    if thinking_active:
+                        tui.end_thinking()
+                        thinking_active = False
+                elif event.type == AgentEventType.TEXT_DELTA:
+                    if thinking_active:
+                        tui.end_thinking()
+                        thinking_active = False
+                    if not text_started:
+                        tui.stop_loading()
+                        tui.begin_assistant()
+                        text_started = True
+                    content = event.data.get("content", "")
+                    tui.stream_assistant_delta(content)
+                elif event.type == AgentEventType.TEXT_COMPLETE:
+                    if text_started:
+                        tui.end_assistant()
+                    response_content = event.data.get("content", "")
+                elif event.type == AgentEventType.AGENT_START:
+                    tui.agent_start(event.data.get("message", ""))
+                elif event.type == AgentEventType.AGENT_END:
+                    tui.agent_end(event.data.get("usage"))
+                elif event.type == AgentEventType.AGENT_ERROR:
+                    tui.display_error(event.data.get("message", "Unknown error"))
+                    return f"Error: {event.data.get('message', 'Unknown error')}"
+                elif event.type == AgentEventType.TOOL_CALL_START:
+                    tool_name = event.data.get("name", "unknown")
+                    tui.tool_call_start(
+                        event.data.get("call_id", ""),
+                        tool_name,
+                        None,
+                        event.data.get("arguments", {}),
+                    )
+                elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+                    tool_name = event.data.get("name", "unknown")
+                    tui.tool_call_complete(
+                        event.data.get("call_id", ""),
+                        tool_name,
+                        None,
+                        event.data.get("success", False),
+                        event.data.get("output", ""),
+                        event.data.get("error"),
+                        event.data.get("metadata"),
+                        event.data.get("diff"),
+                        event.data.get("truncated", False),
+                        event.data.get("exit_code"),
+                    )
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Init cancelled by user.[/yellow]")
+            return "cancelled"
 
         return response_content if response_content else "completed"
 
