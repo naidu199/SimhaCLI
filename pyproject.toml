@@ -50,6 +50,8 @@ simhacli = "main:main"
 py-modules = ["main"]
 packages = [
 	"agent",
+	"cli",
+	"cli.commands",
 	"client",
 	"config",
 	"context",
