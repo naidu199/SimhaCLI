@@ -43,7 +43,7 @@ class WriteFileTool(Tool):
         if not is_new_file:
             try:
                 old_content = path.read_text(encoding="utf-8")
-            except:
+            except Exception:
                 pass
 
         diff = FileDiff(
@@ -73,7 +73,7 @@ class WriteFileTool(Tool):
         if not is_new_file:
             try:
                 old_content = path.read_text(encoding="utf-8")
-            except:
+            except Exception:
                 pass
         try:
             if params.create_directories:
