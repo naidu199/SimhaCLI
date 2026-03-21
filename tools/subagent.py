@@ -43,7 +43,7 @@ class SubagentStatusManager:
             # Only print if status changed
             if self._statuses.get(name) != status:
                 self._statuses[name] = status
-                get_console().print(f"  [cyan]⚡ {name}[/cyan] [{style}]{status}[/style]")
+                get_console().print(f"  [cyan]⚡ {name}[/cyan] [{style}]{status}[/{style}]")
 
     def complete(self, name: str, success: bool = True):
         """Mark a subagent as complete."""

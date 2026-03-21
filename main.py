@@ -14,7 +14,13 @@ from utils.file_attachments import (
 
 from cli.factory import create_command_registry
 from cli.command_handler import CommandHandler
-from __init__ import __version__
+
+# Get version from package metadata or fallback
+try:
+    from importlib.metadata import version
+    __version__ = version("simhacli")
+except Exception:
+    __version__ = "1.4.2"
 
 console = get_console()
 

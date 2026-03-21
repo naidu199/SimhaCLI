@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simhacli"
-version = "1.4.1"
+version = "1.4.2"
 description = "SimhaCLI 🦁 — AI Coding Agent that runs inside your terminal"
 readme = "README.md"
 license = "MIT"
