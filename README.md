@@ -181,18 +181,6 @@ api_key = "your_api_key_here"
 api_base_url = "https://openrouter.ai/api/v1"
 ```
 
-### Environment Variables
-
-```bash
-# Windows (PowerShell)
-$env:API_KEY = "your_api_key_here"
-$env:API_BASE_URL = "https://openrouter.ai/api/v1"
-
-# Linux / macOS
-export API_KEY="your_api_key_here"
-export API_BASE_URL="https://openrouter.ai/api/v1"
-```
-
 ### Set credentials interactively
 
 ```bash
