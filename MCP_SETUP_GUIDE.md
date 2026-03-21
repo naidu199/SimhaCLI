@@ -11,6 +11,32 @@
 3. Uncomment and configure the MCP server
 4. Restart SimhaCLI
 
+## Adding Custom MCP Servers
+
+1. Open `.simhacli/config.toml`
+2. Add a new section following one of the patterns:
+
+   **Python (recommended):**
+
+```toml
+   [mcp_servers.my_tool]
+   command = "uvx"
+   args = ["mcp-server-package-name"]
+   enabled = true
+```
+
+**Node:**
+
+```toml
+   [mcp_servers.my_tool]
+   command = "npx"
+   args = ["-y", "@scope/server-name"]
+   enabled = true
+```
+
+3. Restart SimhaCLI
+4. Browse more MCPs: https://github.com/modelcontextprotocol/servers
+
 **Security:** Your `.simhacli/config.toml` is inside the `.simhacli/` folder which is automatically gitignored. API keys and tokens stored there are safe and will NOT be pushed to GitHub.
 
 ---
@@ -115,7 +141,72 @@ Browser automation and end-to-end testing.
 [mcp_servers.playwright]
 command = "npx"
 args = ["-y", "@playwright/mcp"]
+```
+
+---
+
+### Sequential Thinking MCP
+
+Provides an explicit reasoning scratchpad for complex multi-step tasks. The agent can break down problems, think step-by-step, and maintain a persistent thought process.
+
+**No credentials needed.**
+
+**Config:**
+
+```toml
+[mcp_servers.sequential_thinking]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-sequentialthinking"]
 enabled = true
+```
+
+---
+
+### Memory MCP
+
+Persists a knowledge graph across sessions — stores project conventions, your preferences, recurring patterns, and decisions made. The agent can remember and recall information across different conversations.
+
+**No credentials needed.**
+
+**Config:**
+
+```toml
+[mcp_servers.memory]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-memory"]
+enabled = true
+```
+
+**Optional:** Pin where the knowledge graph file lives on disk:
+
+```toml
+env = { MEMORY_FILE_PATH = "D:/mine/SimhaCLI/.simhacli/memory.json" }
+```
+
+---
+
+### Fetch MCP
+
+Lets the agent pull live documentation, READMEs, API references, and Stack Overflow answers during a task. Useful for looking up current information without leaving the conversation.
+
+**No credentials needed.**
+
+**Config:**
+
+```toml
+[mcp_servers.fetch]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-fetch"]
+enabled = true
+```
+
+**Optional tuning:**
+
+```toml
+env = {
+  FETCH_MAX_RESPONSE_SIZE = "512000",   # bytes, default 5MB — trim for speed
+  FETCH_TIMEOUT_MS = "10000"            # 10s timeout per request
+}
 ```
 
 ---

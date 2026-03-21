@@ -170,18 +170,12 @@ context_window = 256000          # Maximum context size
 # Execute custom scripts/commands at specific points during execution
 # hooks_enabled = true
 
-# Example: Run tests before agent processes a request
+# Example: Auto-format code after file edits
 # [[hooks]]
-# name = "pre_check"
-# trigger = "before_agent"       # Options: before_tool, after_tool, before_agent, after_agent, on_error
-# command = "pytest tests/"
-# enabled = true
-
-# Example: Format code after file edits
-# [[hooks]]
-# name = "auto_format"
-# trigger = "after_tool"
-# command = "black ."
+# name = "format_on_write"
+# trigger = "after_tool"       # Options: before_tool, after_tool, before_agent, after_agent, on_error
+# command = "black {file}"     # {file} placeholder available for after_tool/after_agent
+# time_out_sec = 30.0
 # enabled = true
 
 # ───────────────────────────────────────────────────────────────────────
@@ -246,10 +240,55 @@ context_window = 256000          # Maximum context size
 # args = ["-y", "@modelcontextprotocol/server-filesystem", "{cwd}"]
 # enabled = true
 
-# Example: HTTP-based MCP server
-# [mcp_servers.custom_service]
-# url = "http://localhost:3000/mcp"
+# Sequential Thinking MCP - Explicit reasoning scratchpad for complex multi-step tasks
+# [mcp_servers.sequential_thinking]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-sequentialthinking"]
 # enabled = true
+
+# Memory MCP - Persists knowledge graph across sessions (project conventions, preferences, decisions)
+# [mcp_servers.memory]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-memory"]
+# enabled = true
+# # Optional: pin where the knowledge graph file lives on disk
+# # env = { MEMORY_FILE_PATH = "D:/mine/SimhaCLI/.simhacli/memory.json" }
+
+# Fetch MCP - Pull live docs, READMEs, API refs, Stack Overflow mid-task
+# [mcp_servers.fetch]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-fetch"]
+# enabled = true
+# # Optional tuning:
+# # env = {
+# #   FETCH_MAX_RESPONSE_SIZE = "512000",   # bytes, default 5MB — trim for speed
+# #   FETCH_TIMEOUT_MS = "10000"            # 10s timeout per request
+# # }
+
+# GitHub MCP - Create repos, manage PRs, issues
+# [mcp_servers.github]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-github"]
+# env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
+# Get token at: https://github.com/settings/tokens (scopes: repo, workflow, gist)
+
+# PostgreSQL MCP - Query and manage PostgreSQL databases
+# [mcp_servers.postgresql]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-postgres"]
+# env = { DATABASE_URL = "postgresql://postgres:password@db.abcdef.supabase.co:5432/postgres" }
+
+# Supabase MCP - Manage Supabase projects, databases, edge functions
+# [mcp_servers.supabase]
+# command = "npx"
+# args = [
+#   "-y",
+#   "@supabase/mcp-server-supabase",
+#   "--access-token", "sbp_xxxxxxxxxxxx",
+#   "--project-ref", "abcdefghijklmnop"
+# ]
+# Get access token at: https://supabase.com/dashboard → Account → Access Tokens
+# Get project ref from: https://supabase.com/dashboard → Project Settings → General
 
 # ───────────────────────────────────────────────────────────────────────
 # TOOL RESTRICTIONS

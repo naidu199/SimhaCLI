@@ -209,7 +209,26 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
 - **Discovery**: Tools from MCP servers auto-registered as `ToolKind.MCP`
 - **Config**: `config.mcp_servers` dictionary with `MCPServerConfig` (command/args or url)
 - **Status**: `/mcp` command shows connected servers and their tools
-- **Pre-configured examples**: GitHub, PostgreSQL, Supabase, Playwright (see `MCP_SETUP_GUIDE.md`)
+- **Pre-configured examples**: GitHub, PostgreSQL, Supabase, Playwright, Sequential Thinking, Memory, Fetch (see `MCP_SETUP_GUIDE.md`)
+
+#### New MCP Servers (Recommended)
+
+**Sequential Thinking MCP**
+- Provides explicit reasoning scratchpad for complex multi-step tasks
+- Agent can break down problems and think step-by-step
+- Config: `[mcp_servers.sequential_thinking]` with `@modelcontextprotocol/server-sequentialthinking`
+
+**Memory MCP**
+- Persists a knowledge graph across sessions
+- Stores project conventions, preferences, recurring patterns, decisions
+- Config: `[mcp_servers.memory]` with `@modelcontextprotocol/server-memory`
+- Optional: `MEMORY_FILE_PATH` env var to pin storage location
+
+**Fetch MCP**
+- Pulls live docs, READMEs, API refs, Stack Overflow mid-task
+- Useful for current information without leaving conversation
+- Config: `[mcp_servers.fetch]` with `@modelcontextprotocol/server-fetch`
+- Optional tuning: `FETCH_MAX_RESPONSE_SIZE`, `FETCH_TIMEOUT_MS`
 
 ### Workflow Automation
 

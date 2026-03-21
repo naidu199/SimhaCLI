@@ -305,6 +305,32 @@ class MyTool(Tool):
 
 ---
 
+## Adding Custom MCP Servers
+
+1. Open `.simhacli/config.toml`
+2. Add a new section following one of the patterns:
+
+   **Python (recommended):**
+
+```toml
+   [mcp_servers.my_tool]
+   command = "uvx"
+   args = ["mcp-server-package-name"]
+   enabled = true
+```
+
+**Node:**
+
+```toml
+   [mcp_servers.my_tool]
+   command = "npx"
+   args = ["-y", "@scope/server-name"]
+   enabled = true
+```
+
+3. Restart SimhaCLI
+4. Browse more MCPs: https://github.com/modelcontextprotocol/servers
+
 ## 🖥️ CLI Options
 
 ```

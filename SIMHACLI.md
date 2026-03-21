@@ -265,6 +265,28 @@ enabled = true
 [mcp_servers.filesystem]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
+
+[mcp_servers.sequential_thinking]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-sequentialthinking"]
+enabled = true
+
+[mcp_servers.memory]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-memory"]
+enabled = true
+# Optional: pin where the knowledge graph file lives on disk
+# env = { MEMORY_FILE_PATH = "D:/mine/SimhaCLI/.simhacli/memory.json" }
+
+[mcp_servers.fetch]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-fetch"]
+enabled = true
+# Optional tuning:
+# env = {
+#   FETCH_MAX_RESPONSE_SIZE = "512000",   # bytes, default 5MB — trim for speed
+#   FETCH_TIMEOUT_MS = "10000"            # 10s timeout per request
+# }
 ```
 
 ---
