@@ -14,10 +14,12 @@ from utils.file_attachments import (
 
 from cli.factory import create_command_registry
 from cli.command_handler import CommandHandler
+from bot.commands import bot_group
 
 # Get version from package metadata or fallback
 try:
     from importlib.metadata import version
+
     __version__ = version("simhacli")
 except Exception:
     __version__ = "1.4.2"
@@ -70,7 +72,9 @@ class SimhaCLI:
 
                 def get_tool_names():
                     if self.agent and self.agent.session:
-                        tools = self.agent.session.tool_registry.get_all_registered_tools()
+                        tools = (
+                            self.agent.session.tool_registry.get_all_registered_tools()
+                        )
                         return sorted([t.name for t in tools])
                     return []
 
@@ -78,8 +82,16 @@ class SimhaCLI:
                     if not self.agent or not self.agent.session:
                         return {}
                     tools = self.agent.session.tool_registry.get_all_registered_tools()
-                    denied_set = set(self.config.denied_tools) if self.config.denied_tools else set()
-                    allowed_set = set(self.config.allowed_tools) if self.config.allowed_tools else None
+                    denied_set = (
+                        set(self.config.denied_tools)
+                        if self.config.denied_tools
+                        else set()
+                    )
+                    allowed_set = (
+                        set(self.config.allowed_tools)
+                        if self.config.allowed_tools
+                        else None
+                    )
                     status = {}
                     for tool in tools:
                         if tool.name in denied_set:
@@ -97,18 +109,24 @@ class SimhaCLI:
                         self.tui.print_input_hint()
                         # Show context window usage
                         if self.agent and self.agent.session:
-                            current_tokens = self.agent.session.context_manager.get_current_token_count()
+                            current_tokens = (
+                                self.agent.session.context_manager.get_current_token_count()
+                            )
                             max_tokens = self.config.model.context_window
                             self.tui.print_context_usage(current_tokens, max_tokens)
                         user_input = await self.tui.get_multiline_input("> ")
                         if user_input is None:
-                            console.print("\n[dim]Use /exit, /quit, or 'q' to quit[/dim]")
+                            console.print(
+                                "\n[dim]Use /exit, /quit, or 'q' to quit[/dim]"
+                            )
                             continue
                         if not user_input:
                             continue
 
                         if user_input.strip().lower() == "q":
-                            console.print("[dim]Agent stopped. Waiting for input...[/dim]")
+                            console.print(
+                                "[dim]Agent stopped. Waiting for input...[/dim]"
+                            )
                             continue
 
                         if user_input.startswith("/"):
@@ -131,7 +149,9 @@ class SimhaCLI:
 
                         if self.agent.has_undo_changes():
                             count = self.agent.get_undo_count()
-                            console.print(f"[dim]  {count} file(s) changed. Type /undo to revert.[/dim]")
+                            console.print(
+                                f"[dim]  {count} file(s) changed. Type /undo to revert.[/dim]"
+                            )
 
                     except KeyboardInterrupt:
                         console.print("\n[dim]Use /exit, /quit, or 'q' to quit[/dim]")
@@ -139,7 +159,9 @@ class SimhaCLI:
                         break
 
         except KeyboardInterrupt:
-            console.print("\n[error]Interrupted! Use /exit or /quit to quit properly.[/error]")
+            console.print(
+                "\n[error]Interrupted! Use /exit or /quit to quit properly.[/error]"
+            )
             return None
         finally:
             self.agent = None
@@ -218,17 +240,20 @@ class SimhaCLI:
     def _check_stop_input(self) -> bool:
         """Check if 'q' was pressed to stop agent execution (non-blocking)."""
         import sys
+
         if sys.platform == "win32":
             import msvcrt
+
             if msvcrt.kbhit():
                 key = msvcrt.getch()
-                if key in (b'q', b'Q'):
+                if key in (b"q", b"Q"):
                     return True
         else:
             import select
+
             if select.select([sys.stdin], [], [], 0.0)[0]:
                 key = sys.stdin.read(1)
-                if key.lower() == 'q':
+                if key.lower() == "q":
                     return True
         return False
 
@@ -312,8 +337,11 @@ class SimhaCLI:
         return kind.value if kind else None
 
 
-@click.command()
-@click.argument("prompt", required=False)
+@click.group(
+    invoke_without_command=True,
+    context_settings=dict(allow_extra_args=True, allow_interspersed_args=False),
+)
+# @click.argument("prompt", required=False)
 @click.option(
     "--cwd",
     "-c",
@@ -327,11 +355,17 @@ class SimhaCLI:
     is_flag=True,
     help="Show SimhaCLI version and exit.",
 )
+@click.pass_context
 def main(
-    prompt: str | None = None,
+    ctx,
+    # prompt: str | None = None,
     cwd: Path | None = None,
     version: bool = False,
 ):
+
+    if ctx.invoked_subcommand is not None:  # ← add this block
+        return  #   (stops here for subcommands)
+    prompt = " ".join(ctx.args) if ctx.args else None
     if version:
         console.print(f"SimhaCLI [cyan]{__version__}[/cyan]")
         console.print("Built by [cyan]Narasimha Naidu Korrapati[/cyan]")
@@ -361,6 +395,8 @@ def main(
     except KeyboardInterrupt:
         pass
 
+
+main.add_command(bot_group)
 
 if __name__ == "__main__":
     main()

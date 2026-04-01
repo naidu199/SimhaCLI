@@ -117,6 +117,32 @@ class ContextManager:
 
         return messages
 
+    def set_messages(self, messages: list[dict[str, str]]) -> None:
+        """Restore messages from a list of message dicts (as returned by get_messages).
+
+        This reconstructs the internal _messages list and updates the system prompt.
+        """
+        self._messages = []
+        system_prompt = None
+
+        for msg_dict in messages:
+            role = msg_dict.get("role")
+            content = msg_dict.get("content", "")
+            if role == "system":
+                system_prompt = content
+                continue
+
+            message_item = MessageItem(
+                role=role,
+                content=content,
+                tool_call_id=msg_dict.get("tool_call_id"),
+                tool_calls=msg_dict.get("tool_calls", []),
+            )
+            self._messages.append(message_item)
+
+        if system_prompt is not None:
+            self._system_prompt = system_prompt
+
     def get_current_token_count(self) -> int:
         """Calculate actual token count of all messages including system prompt."""
         total = 0

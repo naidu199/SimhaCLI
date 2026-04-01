@@ -357,55 +357,110 @@ def _save_config_toml(config_path: Path, config_dict: dict[str, Any]) -> None:
     logger.info(f"Saved config to {config_path}")
 
 
-def _update_config_value(config_path: Path, section: str, key: str, value: str) -> bool:
-    """Update a single value in a TOML file while preserving comments and structure.
+def save_config(config: Config) -> None:
+    """Save the given Config object to the system config file."""
+    system_path = get_config_file_path()
 
-    Returns True if the value was updated, False if the file structure wasn't found.
+    # Use Pydantic's model_dump to convert to dict, excluding None and private attrs
+    config_dict = config.model_dump(
+        exclude_none=True,
+        exclude_unset=True,
+        mode='json'
+    )
+
+    # Convert Path objects to strings
+    def convert_paths(obj):
+        if isinstance(obj, dict):
+            return {k: convert_paths(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_paths(item) for item in obj]
+        elif isinstance(obj, Path):
+            return str(obj)
+        return obj
+
+    config_dict = convert_paths(config_dict)
+
+    _save_config_toml(system_path, config_dict)
+
+
+def set_config_value(section: str, key: str, value: Any) -> None:
+    """Set a configuration value in the system config file, preserving other content.
+
+    Creates the file if it doesn't exist. If the section doesn't exist, it will be added.
+    If the key exists, it will be updated. If it's commented, it will be uncommented.
     """
+    import tomli_w
+    config_path = get_config_file_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Generate the assignment line using tomli_w
+    assignment_line = tomli_w.dumps({key: value}).strip()
+
+    # If file doesn't exist, create it with the section and assignment
     if not config_path.exists():
-        return False
+        content = f"[{section}]\n{assignment_line}\n"
+        config_path.write_text(content, encoding="utf-8")
+        logger.info(f"Created config with {section}.{key}")
+        return
 
+    # Read existing content as lines
     content = config_path.read_text(encoding="utf-8")
-    lines = content.split("\n")
+    lines = content.splitlines()
 
-    in_section = False
-    updated = False
-    section_pattern = f"[{section}]"
-
+    section_header = f"[{section}]"
+    section_idx = None
     for i, line in enumerate(lines):
-        stripped = line.strip()
+        if line.strip() == section_header:
+            section_idx = i
+            break
 
-        # Check if we're entering the target section
-        if stripped == section_pattern:
-            in_section = True
-            continue
+    if section_idx is not None:
+        # Find the extent of the section (lines until next section or end)
+        section_start = section_idx + 1
+        section_end = len(lines)
+        for i in range(section_start, len(lines)):
+            stripped = lines[i].strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                section_end = i
+                break
 
-        # Check if we've entered a different section (exit target section)
-        if stripped.startswith("[") and stripped.endswith("]") and in_section:
-            in_section = False
-            continue
-
-        # If we're in the target section, look for the key
-        if in_section and stripped.startswith(f"{key}"):
-            # Check if it's a commented key like "# name = ..."
+        # Look for the key within the section
+        key_idx = None
+        for i in range(section_start, section_end):
+            line = lines[i]
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Determine the effective key name (uncomment if needed)
+            line_content = stripped
             if stripped.startswith("#"):
-                # Uncomment and update the value
-                lines[i] = f'{key} = "{value}"'
-                updated = True
-                break
-            elif stripped.startswith(f"{key} =") or stripped.startswith(f'{key}="'):
-                # Update existing uncommented key
-                # Preserve the indentation
-                indent = line[: len(line) - len(line.lstrip())]
-                lines[i] = f'{indent}{key} = "{value}"'
-                updated = True
-                break
+                line_content = stripped[1:].strip()
+            # Split at '=' to get the key part
+            if "=" in line_content:
+                left = line_content.split("=", 1)[0].strip()
+                if left == key:
+                    key_idx = i
+                    break
 
-    if updated:
-        config_path.write_text("\n".join(lines), encoding="utf-8")
-        logger.info(f"Updated {section}.{key} in {config_path}")
+        if key_idx is not None:
+            # Update existing key, preserving indentation and uncommenting if necessary
+            old_line = lines[key_idx]
+            indent = old_line[: len(old_line) - len(old_line.lstrip())]
+            lines[key_idx] = f"{indent}{assignment_line}"
+        else:
+            # Insert new key at the end of the section (before next section)
+            lines.insert(section_end, assignment_line)
+    else:
+        # Section does not exist, append it at the end
+        if lines and lines[-1].strip() != "":
+            lines.append("")  # blank line separator
+        lines.append(section_header)
+        lines.append(assignment_line)
 
-    return updated
+    # Write back with trailing newline
+    new_content = "\n".join(lines) + "\n"
+    config_path.write_text(new_content, encoding="utf-8")
+    logger.info(f"Set {section}.{key} in {config_path}")
 
 
 def _add_commented_section(
@@ -435,9 +490,19 @@ def _mask_api_key(api_key: str) -> str:
 
 
 def _prompt_for_api_credentials(
-    config_dict: dict[str, Any], config_path: Path
+    config_dict: dict[str, Any], config_path: Path, prompt: bool = True
 ) -> tuple[str | None, str | None]:
-    """Prompt user for API credentials if not configured."""
+    """Prompt user for API credentials if not configured.
+
+    Args:
+        config_dict: Configuration dictionary
+        config_path: Path to config file (for display/saving)
+        prompt: If True, interactively prompt for missing credentials.
+                If False, just return what's available without prompting.
+
+    Returns:
+        Tuple of (api_key, api_base_url) - may be None if not configured and prompt=False
+    """
     from rich.console import Console
     from rich.prompt import Prompt, Confirm
     from rich.panel import Panel
@@ -447,7 +512,8 @@ def _prompt_for_api_credentials(
     api_key = config_dict.get("api_key") or os.environ.get("API_KEY")
     api_base_url = config_dict.get("api_base_url") or os.environ.get("API_BASE_URL")
 
-    if api_key and api_base_url:
+    # If credentials are available or we're not prompting, return early
+    if (api_key and api_base_url) or not prompt:
         return api_key, api_base_url
 
     # Show setup panel
@@ -531,7 +597,7 @@ def _prompt_for_api_credentials(
     return api_key, api_base_url
 
 
-def load_config(cwd: Path | None = None) -> Config:
+def load_config(cwd: Path | None = None, prompt_api: bool = True) -> Config:
     cwd = cwd or Path.cwd()
 
     # C:\Users\Naidu\AppData\Local\simhacli\config.toml ( it is platform dependent, from platformdirs when users setup simhacli first time)
@@ -565,8 +631,8 @@ def load_config(cwd: Path | None = None) -> Config:
         if agent_md_content:
             config_dict["developer_instructions"] = agent_md_content
 
-    # Check for API credentials and prompt if missing
-    api_key, api_base_url = _prompt_for_api_credentials(config_dict, system_path)
+    # Check for API credentials and prompt if missing (only if prompt_api=True)
+    api_key, api_base_url = _prompt_for_api_credentials(config_dict, system_path, prompt=prompt_api)
 
     # Update config_dict with credentials
     credentials_updated = False

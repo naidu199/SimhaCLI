@@ -12,6 +12,12 @@ class ModelConfig(BaseModel):
     context_window: int = 256_000
 
 
+class TelegramConfig(BaseModel):
+    """Telegram bot configuration."""
+    bot_token: str | None = None
+    allowed_user_ids: list[int] = Field(default_factory=list)
+
+
 class ShellEnvironmentPolicy(BaseModel):
     ignore_default_excludes: bool = False
     exclude_patterns: list[str] = Field(
@@ -90,6 +96,7 @@ class Config(BaseModel):
 
     model: ModelConfig = Field(default_factory=ModelConfig)
     cwd: Path = Field(default_factory=Path.cwd)
+    telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     shell_environment: ShellEnvironmentPolicy = Field(
         default_factory=ShellEnvironmentPolicy
     )
