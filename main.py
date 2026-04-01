@@ -22,7 +22,7 @@ try:
 
     __version__ = version("simhacli")
 except Exception:
-    __version__ = "1.4.2"
+    __version__ = "1.5.0"
 
 console = get_console()
 
@@ -55,7 +55,7 @@ class SimhaCLI:
                 "Current Usage:",
                 f"Model: {self.config.model.name}",
                 f"CWD: {self.config.cwd}",
-                "Commands: /help, /version, /exit, /config, /approval, /model, /credentials, /permissions, /init, /workflow, /undo, /run",
+                "Commands: /help, /version, /exit, /config, /approval, /model, /credentials, /permissions, /init, /workflow, /undo, /run, /bot",
                 "",
                 "Shortcuts: @attach file | /commands | q=stop agent",
                 "Input: Enter = submit | Esc+Enter = new line",

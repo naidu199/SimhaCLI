@@ -269,6 +269,19 @@ Type any of these during an interactive session:
 | `/undo`                     | Undo the last file edit (interactive selective revert)       |
 | `/run <command>` / `!<cmd>` | Execute a terminal command directly                          |
 | `/workflow <name> [args]`   | Run development workflows (fullstack, github, push, etc.)    |
+| `/bot`                      | Show Telegram bot configuration and setup instructions       |
+
+## 🤖 Telegram Bot
+
+Access SimhaCLI remotely from your phone via Telegram:
+
+| Command                    | Description                                           |
+| -------------------------- | ----------------------------------------------------- |
+| `simhacli bot setup`       | Interactive setup: configure bot token and user IDs  |
+| `simhacli bot start`       | Start the Telegram bot (runs in foreground)          |
+| `simhacli bot status`      | Show current bot configuration                       |
+
+After setup, your bot will accept messages and commands directly in Telegram. Allowed users can chat with SimhaCLI via the bot.
 
 ---
 
@@ -334,6 +347,18 @@ Options:
 ---
 
 ## 📝 Changelog
+
+### v1.5.0 (April 1, 2026)
+
+- **Telegram Bot Integration**: Access SimhaCLI remotely from your phone
+  - `simhacli bot setup` — interactive configuration of bot token and allowed users
+  - `simhacli bot start` — start the Telegram bot (runs in foreground)
+  - `simhacli bot status` — show current bot configuration
+  - `/bot` command — show bot setup instructions directly in SimhaCLI
+- **User Authentication**: Telegram bot restricts access to allowed user IDs
+- **Real-time Bot Status**: Visual indicators for bot configuration and readiness
+- **Improved Configuration Management**: Better error handling and setup guidance
+- **Documentation Updates**: Comprehensive Telegram bot setup instructions
 
 ### v1.4.0 (March 20, 2026)
 
