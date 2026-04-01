@@ -141,6 +141,7 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/init", "analyze project & generate instruction files"),
     ("/permissions", "show current tool permissions"),
     ("/workflow", "run end-to-end development workflow"),
+    ("/bot", "manage Telegram bot"),
     ("/exit", "exit the session"),
     ("/quit", "exit the session"),
 ]
@@ -1516,6 +1517,14 @@ class TUI:
 - `/permissions` - View and toggle tool permissions
 - `/workflow` - Run end-to-end development workflow (GitHub -> DB -> Deploy -> Test)
 - `/init` - Analyze project and generate AGENTS.md / SIMHACLI.md
+
+## Bot Management (CLI commands)
+
+Run these from your terminal, not in the chat:
+
+- `simhacli bot setup` - Interactive setup: configure bot token and allowed user IDs
+- `simhacli bot start` - Start the Telegram bot (keeps running)
+- `simhacli bot status` - Show current bot configuration
 
 ## Input Controls
 

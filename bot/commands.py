@@ -89,15 +89,42 @@ def bot_start(token: str | None):
 @bot_group.command("setup")
 def bot_setup():
     """Interactive setup: save Telegram token and your user ID to config."""
-    from config.loader import load_config, save_config
+    from config.loader import load_config
+    from rich.panel import Panel
 
+    console.print()
     console.print(
-        "\n[bold]SimhaCLI Telegram Bot Setup[/bold]\n"
-        "==============================\n"
-        "You'll need:\n"
-        "  1. A bot token from [link=https://t.me/botfather]@BotFather[/link]\n"
-        "  2. Your Telegram user ID from [link=https://t.me/userinfobot]@userinfobot[/link]\n"
+        Panel(
+            "[bold yellow]🤖 Telegram Bot Setup[/bold yellow]\n\n"
+            "This will configure your Telegram bot token and allowed user IDs.\n\n"
+            "[bold]📋 Prerequisites:[/bold]\n"
+            "• A Telegram account\n"
+            "• @BotFather to create a bot\n"
+            "• @userinfobot to get your user ID",
+            title="[bold]Setup[/bold]",
+            border_style="yellow",
+        )
     )
+    console.print()
+
+    # Step 1: Bot token - with detailed instructions
+    console.print(
+        Panel(
+            "[bold]Step 1 — Create your bot on Telegram[/bold]\n\n"
+            "1. Open Telegram on your phone or desktop\n"
+            "2. Search for [cyan]@BotFather[/cyan] and start a chat\n"
+            "3. Send: [green]/newbot[/green]\n"
+            "4. Follow the prompts:\n"
+            "   • Name: [dim]SimhaCLI (or anything you like)[/dim]\n"
+            "   • Username: [dim]simhacli_yourname_bot[/dim] [yellow](must end with 'bot')[/yellow]\n"
+            "5. BotFather will reply with a token like:\n"
+            "   [green]7123456789:AAFxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx[/green]\n"
+            "6. [bold]Copy the token[/bold] — you'll need it below.",
+            title="📱 Getting Your Bot Token",
+            border_style="cyan",
+        )
+    )
+    console.print()
 
     try:
         cfg = load_config(prompt_api=False)
@@ -105,26 +132,46 @@ def bot_setup():
         console.print(f"[red]Config error:[/red] {e}")
         raise SystemExit(1)
 
-    # Token
+    from rich.prompt import Prompt
+
     existing_token = cfg.telegram.bot_token
     token_display = (
         f"[dim](current: ...{existing_token[-8:]})[/dim]" if existing_token else ""
     )
-    token = click.prompt(
-        f"Bot token {token_display}",
+    token = Prompt.ask(
+        f"[bold cyan]Bot token[/bold cyan] {token_display}",
         default=existing_token or "",
         show_default=False,
+        password=True if not existing_token else False,
     ).strip()
 
     if not token:
         console.print("[red]Token cannot be empty.[/red]")
         raise SystemExit(1)
 
-    # Allowed user IDs
+    console.print()
+
+    # Step 2: Get user IDs
+    console.print(
+        Panel(
+            "[bold]Step 2 — Get Your Telegram User ID[/bold]\n\n"
+            "1. Search for [cyan]@userinfobot[/cyan] in Telegram\n"
+            "2. Start the bot (tap [green]/start[/green])\n"
+            "3. It will reply with your user ID — a number like: [green]912345678[/green]\n"
+            "4. [bold]Copy that number[/bold]\n\n"
+            "[bold]💡 Tip:[/bold] If you want multiple people to access the bot, "
+            "each person should message @userinfobot and provide their ID. "
+            "Enter all allowed IDs separated by commas.",
+            title="🔢 Getting Your User ID",
+            border_style="cyan",
+        )
+    )
+    console.print()
+
     existing_ids = cfg.telegram.allowed_user_ids
     existing_display = ", ".join(str(i) for i in existing_ids) if existing_ids else ""
-    ids_raw = click.prompt(
-        "Your Telegram user ID(s) (comma-separated)",
+    ids_raw = Prompt.ask(
+        "[bold cyan]Your Telegram user ID(s)[/bold cyan] (comma-separated)",
         default=existing_display or "",
         show_default=bool(existing_display),
     ).strip()
@@ -188,8 +235,8 @@ def bot_status():
             else "[red]not set[/red]"
         ),
     )
-    table.add_row("Model", cfg.model)
-    table.add_row("Approval", str(cfg.approval))
+    table.add_row("Model", cfg.model.name)
+    table.add_row("Approval", cfg.approval.value)
     table.add_row(
         "Ready?",
         (

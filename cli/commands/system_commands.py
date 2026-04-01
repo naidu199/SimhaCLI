@@ -1,4 +1,4 @@
-"""System commands: /help, /exit, /config, /clear, /stats, /tools, /mcp, /version."""
+"""System commands: /help, /exit, /config, /clear, /stats, /tools, /mcp, /version, /bot."""
 
 from .base import Command, CommandResult
 from typing import Any
@@ -17,7 +17,7 @@ class HelpCommand(Command):
         elif console:
             console.print("[bold]SimhaCLI Help[/bold]")
             console.print(
-                "Commands: /help, /exit, /config, /model, /approval, /init, /undo, /run"
+                "Commands: /help, /exit, /config, /model, /approval, /init, /undo, /run, /bot"
             )
             console.print("Use @ to attach files. Type 'q' to stop the agent.")
         return CommandResult(success=True)
@@ -176,3 +176,64 @@ class VersionCommand(Command):
 
     def get_help(self) -> str:
         return "Display SimhaCLI version"
+
+
+class BotCommand(Command):
+    @property
+    def name(self) -> str:
+        return "/bot"
+
+    async def execute(self, args: str, context: dict[str, Any]) -> CommandResult:
+        from config.loader import load_config
+        from rich.panel import Panel
+
+        console = context.get("console")
+        if not console:
+            return CommandResult(success=False, message="Missing console")
+
+        try:
+            cfg = load_config(prompt_api=False)
+        except Exception as e:
+            console.print(f"[red]Failed to load config: {e}[/red]")
+            return CommandResult(success=False)
+
+        bot_config = cfg.telegram
+        bot_token = bot_config.bot_token
+        allowed_ids = bot_config.allowed_user_ids
+
+        console.print()
+
+        if not bot_token:
+            console.print(
+                Panel(
+                    "[bold yellow]Telegram Bot Setup Required[/bold yellow]\n\n"
+                    "The Telegram bot is not configured yet.\n\n"
+                    "[bold]Quick Setup:[/bold]\n"
+                    "1. Run: [cyan]simhacli bot setup[/cyan]\n"
+                    "2. Follow the prompts to get a bot token from @BotFather\n"
+                    "3. Enter your Telegram user ID from @userinfobot\n\n"
+                    "After setup, start the bot with: [cyan]simhacli bot start[/cyan]",
+                    title="🤖 Bot Not Configured",
+                    border_style="yellow",
+                )
+            )
+        else:
+            # Show status
+            console.print(
+                Panel(
+                    f"[bold]Bot Token:[/bold] [green]...{bot_token[-8:] if len(bot_token) > 8 else bot_token}[/green]\n"
+                    f"[bold]Allowed Users:[/bold] {', '.join(str(uid) for uid in allowed_ids)}\n\n"
+                    f"[bold]Manage:[/bold]\n"
+                    f"• [cyan]simhacli bot setup[/cyan] — reconfigure token/IDs\n"
+                    f"• [cyan]simhacli bot start[/cyan] — start the bot\n"
+                    f"• [cyan]simhacli bot status[/cyan] — show this status",
+                    title="[bold green]✅ Telegram Bot Active[/bold green]",
+                    border_style="green",
+                )
+            )
+
+        console.print()
+        return CommandResult(success=True)
+
+    def get_help(self) -> str:
+        return "Show Telegram bot configuration and setup instructions"

@@ -2,7 +2,7 @@
 
 from .base import Command, CommandResult
 from .registry import CommandRegistry, get_command_registry
-from .system_commands import HelpCommand, ConfigCommand, ClearCommand, StatsCommand, ToolsCommand, McpCommand, ExitCommand, QuitCommand, VersionCommand
+from .system_commands import BotCommand, HelpCommand, ConfigCommand, ClearCommand, StatsCommand, ToolsCommand, McpCommand, ExitCommand, QuitCommand, VersionCommand
 from .model_commands import ModelCommand, ApprovalCommand, CredentialsCommand, CredsAliasCommand
 from .session_commands import SaveCommand, SessionsCommand, ResumeCommand, CheckpointCommand, RestoreCommand
 from .permissions_commands import PermissionsCommand
@@ -17,6 +17,7 @@ __all__ = [
     "CommandResult",
     "CommandRegistry",
     "get_command_registry",
+    "BotCommand",
     "HelpCommand",
     "ConfigCommand",
     "ClearCommand",

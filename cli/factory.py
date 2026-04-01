@@ -2,6 +2,7 @@
 
 from typing import Any
 from .commands import (
+    BotCommand,
     CommandRegistry,
     get_command_registry,
     HelpCommand,
@@ -45,6 +46,7 @@ def create_command_registry() -> CommandRegistry:
     registry.register(ExitCommand())
     registry.register(QuitCommand())
     registry.register(VersionCommand())
+    registry.register(BotCommand())
 
     # Model/approval commands
     registry.register(ModelCommand())
