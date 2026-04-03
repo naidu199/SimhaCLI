@@ -192,7 +192,7 @@ async def _run_agent(
                 elif event.type == AgentEventType.TEXT_DELTA:
                     content = event.data.get("content", "")
                     response_content += content
-                    await update_status("📝 **Writing response**", spinner=True)
+                    await update_status("📝 Putting things together…", spinner=True)
 
                 elif event.type == AgentEventType.AGENT_ERROR:
                     error_message = event.data.get("message", "Unknown agent error.")
