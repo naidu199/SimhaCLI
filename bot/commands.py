@@ -142,7 +142,7 @@ def bot_setup():
         f"[bold cyan]Bot token[/bold cyan] {token_display}",
         default=existing_token or "",
         show_default=False,
-        password=True if not existing_token else False,
+        password=False,  # Show input clearly (not masked)
     ).strip()
 
     if not token:

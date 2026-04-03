@@ -26,24 +26,21 @@ class ModelCommand(Command):
                 agent.session.context_manager.refresh_system_prompt(tools=tools)
                 console.print("[dim]System prompt updated with new model info[/dim]")
 
-                # Save to project config
+                # Save to project config (local only)
                 project_config_path = config.cwd / ".simhacli" / "config.toml"
                 if project_config_path.parent.exists():
                     try:
-                        from config.loader import _update_config_value, _parse_toml, _save_config_toml
+                        from config.loader import _parse_toml, _save_config_toml
 
-                        updated = _update_config_value(
-                            project_config_path, "model", "name", args
-                        )
-                        if not updated:
-                            existing_config = {}
-                            if project_config_path.is_file():
-                                existing_config = _parse_toml(project_config_path)
-                            if "model" not in existing_config:
-                                existing_config["model"] = {}
-                            existing_config["model"]["name"] = args
-                            _save_config_toml(project_config_path, existing_config)
-
+                        # Read existing config or create new
+                        existing_config = {}
+                        if project_config_path.is_file():
+                            existing_config = _parse_toml(project_config_path)
+                        # Ensure model section exists
+                        if "model" not in existing_config:
+                            existing_config["model"] = {}
+                        existing_config["model"]["name"] = args
+                        _save_config_toml(project_config_path, existing_config)
                         console.print(f"[dim]Model saved to project config: {project_config_path}[/dim]")
                     except Exception as e:
                         console.print(f"[warning]Could not save to project config: {e}[/warning]")

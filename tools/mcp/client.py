@@ -47,9 +47,15 @@ class MCPClient:
             env.update(self.config.env)
             # Use config.cwd if set, otherwise use the client's cwd
             working_dir = str(self.config.cwd) if self.config.cwd else str(self.cwd)
+
+            # Substitute {cwd} placeholder in args with the actual working directory
+            resolved_args = [
+                arg.replace("{cwd}", working_dir) for arg in self.config.args
+            ]
+
             transport = StdioTransport(
                 command=self.config.command,
-                args=list(self.config.args),
+                args=resolved_args,
                 env=env,
                 cwd=working_dir,
                 log_file=Path(os.devnull),

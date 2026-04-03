@@ -189,12 +189,39 @@ context_window = 256000          # Maximum context size
 # ───────────────────────────────────────────────────────────────────────
 # MCP SERVERS (Model Context Protocol)
 # ───────────────────────────────────────────────────────────────────────
-# Connect to external tools and services via MCP protocol
-# Uncomment and configure the servers you need, then restart SimhaCLI
+# Core MCP servers are enabled by default. Uncomment additional servers as needed.
 #
 # *** SECURITY: This file is inside .simhacli/ which is gitignored ***
 # *** Your API keys and tokens will NOT be pushed to GitHub ***
 # *** Never copy real keys into other files or share them ***
+
+# Filesystem MCP - Access project files (uses {cwd} placeholder automatically)
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "{cwd}"]
+enabled = true
+
+# Sequential Thinking MCP - Explicit reasoning scratchpad for complex multi-step tasks
+[mcp_servers.sequential_thinking]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-sequentialthinking"]
+enabled = true
+
+# Memory MCP - Persists knowledge graph across sessions
+[mcp_servers.memory]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-memory"]
+enabled = true
+
+# Fetch MCP - Pull live docs, READMEs, API refs mid-task
+[mcp_servers.fetch]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-fetch"]
+enabled = true
+
+# ───────────────────────────────────────────────────────────────────────
+# OPTIONAL MCP SERVERS (uncomment to enable)
+# ───────────────────────────────────────────────────────────────────────
 
 # GitHub MCP - Create repos, manage PRs, issues
 # [mcp_servers.github]
@@ -234,62 +261,6 @@ context_window = 256000          # Maximum context size
 # command = "npx"
 # args = ["-y", "@playwright/mcp"]
 
-# Filesystem MCP - Access project files (uses your project directory automatically)
-# [mcp_servers.filesystem]
-# command = "npx"
-# args = ["-y", "@modelcontextprotocol/server-filesystem", "{cwd}"]
-# enabled = true
-
-# Sequential Thinking MCP - Explicit reasoning scratchpad for complex multi-step tasks
-# [mcp_servers.sequential_thinking]
-# command = "npx"
-# args = ["-y", "@modelcontextprotocol/server-sequentialthinking"]
-# enabled = true
-
-# Memory MCP - Persists knowledge graph across sessions (project conventions, preferences, decisions)
-# [mcp_servers.memory]
-# command = "npx"
-# args = ["-y", "@modelcontextprotocol/server-memory"]
-# enabled = true
-# # Optional: pin where the knowledge graph file lives on disk
-# # env = { MEMORY_FILE_PATH = "D:/mine/SimhaCLI/.simhacli/memory.json" }
-
-# Fetch MCP - Pull live docs, READMEs, API refs, Stack Overflow mid-task
-# [mcp_servers.fetch]
-# command = "npx"
-# args = ["-y", "@modelcontextprotocol/server-fetch"]
-# enabled = true
-# # Optional tuning:
-# # env = {
-# #   FETCH_MAX_RESPONSE_SIZE = "512000",   # bytes, default 5MB — trim for speed
-# #   FETCH_TIMEOUT_MS = "10000"            # 10s timeout per request
-# # }
-
-# GitHub MCP - Create repos, manage PRs, issues
-# [mcp_servers.github]
-# command = "npx"
-# args = ["-y", "@modelcontextprotocol/server-github"]
-# env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
-# Get token at: https://github.com/settings/tokens (scopes: repo, workflow, gist)
-
-# PostgreSQL MCP - Query and manage PostgreSQL databases
-# [mcp_servers.postgresql]
-# command = "npx"
-# args = ["-y", "@modelcontextprotocol/server-postgres"]
-# env = { DATABASE_URL = "postgresql://postgres:password@db.abcdef.supabase.co:5432/postgres" }
-
-# Supabase MCP - Manage Supabase projects, databases, edge functions
-# [mcp_servers.supabase]
-# command = "npx"
-# args = [
-#   "-y",
-#   "@supabase/mcp-server-supabase",
-#   "--access-token", "sbp_xxxxxxxxxxxx",
-#   "--project-ref", "abcdefghijklmnop"
-# ]
-# Get access token at: https://supabase.com/dashboard → Account → Access Tokens
-# Get project ref from: https://supabase.com/dashboard → Project Settings → General
-
 # ───────────────────────────────────────────────────────────────────────
 # TOOL RESTRICTIONS
 # ───────────────────────────────────────────────────────────────────────
@@ -300,7 +271,8 @@ context_window = 256000          # Maximum context size
 # For more information, visit: https://github.com/narasimhanaidukorrapati/simhacli
 # ═══════════════════════════════════════════════════════════════════════
 """
-            config_content = config_content.replace("{cwd}", str(curdir))
+            # DO NOT replace {cwd} placeholder - keep it as is for portability
+            # The MCP server will substitute it at runtime
             config_file.write_text(config_content, encoding="utf-8")
             logger.info(f"Created project config template at {config_file}")
 
@@ -642,7 +614,12 @@ def load_config(cwd: Path | None = None, prompt_api: bool = True) -> Config:
     if project_path:
         try:
             project_config_dict = _parse_toml(project_path)
-            config_dict = _merge_dicts(config_dict, project_config_dict)
+            # Filter out global-only keys that should NOT be overridden by project config
+            GLOBAL_ONLY_KEYS = {"api_key", "api_base_url", "telegram"}
+            filtered_project_config = {
+                k: v for k, v in project_config_dict.items() if k not in GLOBAL_ONLY_KEYS
+            }
+            config_dict = _merge_dicts(config_dict, filtered_project_config)
         except ConfigError:
             logger.warning(f"Skipping invalid system config: {system_path}")
 

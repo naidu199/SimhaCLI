@@ -275,11 +275,11 @@ Type any of these during an interactive session:
 
 Access SimhaCLI remotely from your phone via Telegram:
 
-| Command                    | Description                                           |
-| -------------------------- | ----------------------------------------------------- |
-| `simhacli bot setup`       | Interactive setup: configure bot token and user IDs  |
-| `simhacli bot start`       | Start the Telegram bot (runs in foreground)          |
-| `simhacli bot status`      | Show current bot configuration                       |
+| Command               | Description                                         |
+| --------------------- | --------------------------------------------------- |
+| `simhacli bot setup`  | Interactive setup: configure bot token and user IDs |
+| `simhacli bot start`  | Start the Telegram bot (runs in foreground)         |
+| `simhacli bot status` | Show current bot configuration                      |
 
 After setup, your bot will accept messages and commands directly in Telegram. Allowed users can chat with SimhaCLI via the bot.
 
@@ -358,7 +358,6 @@ Options:
 - **User Authentication**: Telegram bot restricts access to allowed user IDs
 - **Real-time Bot Status**: Visual indicators for bot configuration and readiness
 - **Improved Configuration Management**: Better error handling and setup guidance
-- **Documentation Updates**: Comprehensive Telegram bot setup instructions
 
 ### v1.4.0 (March 20, 2026)
 
