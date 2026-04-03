@@ -106,14 +106,50 @@ async def _dispatch_repl_command(
 # ─── Agent runner ─────────────────────────────────────────────────────────────
 
 
-async def _run_agent(prompt: str, cfg: Config, session_state: dict) -> str:
+async def _run_agent(
+    prompt: str, cfg: Config, session_state: dict, thinking_msg
+) -> str:
     """
-    Run SimhaCLI's Agent with the given prompt.
-    Only TEXT_COMPLETE content is returned — no tool call noise, no thinking.
-    Conversation history is persisted in session_state between messages.
+    Run SimhaCLI's Agent with the given prompt and show real-time processing.
+    The Telegram message (thinking_msg) is updated progressively with thinking,
+    tool calls, etc. Returns final TEXT_COMPLETE content after showing full process.
     """
     response_content: str = ""
     error_message: Optional[str] = None
+    process_lines: list[str] = []
+    thinking_buffer: str = ""
+    last_update_time = 0
+    update_interval = 0.5  # seconds between Telegram message edits
+
+    def format_tool_args(args: dict) -> str:
+        """Format tool arguments as a compact string."""
+        if not args:
+            return "()"
+        # Show arguments in one line if possible
+        parts = []
+        for k, v in args.items():
+            # Truncate long values
+            v_str = str(v)
+            if len(v_str) > 100:
+                v_str = v_str[:97] + "..."
+            parts.append(f"{k}={v_str}")
+        return "(" + ", ".join(parts) + ")"
+
+    async def update_message(prefix: str = "🦁 Processing..."):
+        """Throttled Telegram message update."""
+        nonlocal last_update_time
+        import time
+
+        current_time = time.time()
+        if current_time - last_update_time < update_interval:
+            return  # Skip to avoid too many edits
+        last_update_time = current_time
+
+        text = prefix + "\n" + "\n".join(process_lines)
+        try:
+            await thinking_msg.edit_text(text, parse_mode="Markdown")
+        except Exception:
+            pass  # Ignore edit failures (message may be too long, etc.)
 
     try:
         async with Agent(config=cfg) as agent:
@@ -125,14 +161,93 @@ async def _run_agent(prompt: str, cfg: Config, session_state: dict) -> str:
             # Persist agent ref for command handlers (/stats, /undo etc.)
             session_state["agent"] = agent
 
+            # Initial update
+            process_lines.append("**Agent started**")
+            await update_message()
+
             async for event in agent.run(prompt):
-                if event.type == AgentEventType.TEXT_COMPLETE:
-                    response_content = event.data.get("content", "")
+                if event.type == AgentEventType.AGENT_START:
+                    process_lines.append("SimhaCLI🦁 started")
+                    await update_message()
+
+                elif event.type == AgentEventType.THINKING_DELTA:
+                    delta = event.data.get("content", "")
+                    thinking_buffer += delta
+                    # Show partial thinking in muted text
+                    preview = thinking_buffer[-200:].replace("\n", " ")
+                    # Update or add thinking line
+                    if process_lines and process_lines[-1].startswith(
+                        "💭 *SimhaCLI🦁 Thinking"
+                    ):
+                        process_lines[-1] = f"💭 *SimhaCLI🦁 Thinking*: {preview}..."
+                    else:
+                        process_lines.append(f"💭 *SimhaCLI🦁 Thinking*: {preview}...")
+                    await update_message()
+
+                elif event.type == AgentEventType.THINKING_COMPLETE:
+                    if thinking_buffer:
+                        thought_text = thinking_buffer.strip()
+                        if len(thought_text) > 300:
+                            thought_text = thought_text[:297] + "..."
+                        # Replace recent thinking line with complete thought
+                        if process_lines and process_lines[-1].startswith(
+                            "💭 *SimhaCLI🦁 Thinking"
+                        ):
+                            process_lines[-1] = (
+                                f"💭 *SimhaCLI🦁 Thought*: {thought_text}"
+                            )
+                        else:
+                            process_lines.append(
+                                f"💭 *SimhaCLI🦁 Thought*: {thought_text}"
+                            )
+                        thinking_buffer = ""
+                    await update_message()
+
+                elif event.type == AgentEventType.TOOL_CALL_START:
+                    name = event.data.get("name", "unknown")
+                    args = event.data.get("arguments", {})
+                    args_str = format_tool_args(args)
+                    process_lines.append(f"🔧 **Tool**: `{name}`{args_str}")
+                    await update_message()
+
+                elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+                    name = event.data.get("name", "unknown")
+                    success = event.data.get("success", False)
+                    result = event.data.get("result")
+                    error = event.data.get("error")
+                    if success:
+                        output = result.output if result else ""
+                        if output and len(output) > 100:
+                            output = output[:97] + "..."
+                        process_lines.append(f"🔧 **Tool completed**: `{name}`")
+                        if output:
+                            process_lines.append(f"   ↳ Output: {output}")
+                    else:
+                        err_msg = error or "Unknown error"
+                        process_lines.append(f"🔧 **Tool failed**: `{name}`")
+                        process_lines.append(f"   ↳ Error: {err_msg}")
+                    await update_message()
+
+                elif event.type == AgentEventType.TOOL_CALL_ERROR:
+                    error_msg = event.data.get("message", "Tool error")
+                    process_lines.append(f"🔧 **Tool error**: {error_msg}")
+                    await update_message()
+
+                elif event.type == AgentEventType.TEXT_DELTA:
+                    content = event.data.get("content", "")
+                    response_content += content
+                    # Don't update on every delta - accumulate and update after complete
 
                 elif event.type == AgentEventType.AGENT_ERROR:
                     error_message = event.data.get("message", "Unknown agent error.")
+                    process_lines.append(f"🦁 **Agent error**: {error_message}")
+                    await update_message()
                     log.error(f"Agent error: {error_message}")
                     break
+
+                elif event.type == AgentEventType.AGENT_END:
+                    # Will be handled after loop
+                    pass
 
             # Save updated context for next message
             if agent.session:
@@ -145,11 +260,28 @@ async def _run_agent(prompt: str, cfg: Config, session_state: dict) -> str:
         log.exception("Unexpected error running agent")
         session_state.pop("agent", None)
         error_message = f"{type(exc).__name__}: {exc}"
+        process_lines.append(f"🦁 **Unexpected error**: {error_message}")
+
+    # Final update - show process + final result
+    final_output = response_content.strip()
+    if error_message:
+        final_text = "\n".join(process_lines) + f"\n\n🦁 {error_message}"
+    elif final_output:
+        final_text = "\n".join(process_lines) + f"\n\n✨ **Result**:\n{final_output}"
+    else:
+        final_text = "\n".join(process_lines) + "\n\n🦁 Done. (No output)"
+
+    try:
+        await thinking_msg.edit_text(final_text, parse_mode="Markdown")
+    except Exception:
+        # Fallback to plain text if Markdown fails
+        plain = final_text.replace("`", "").replace("*", "")
+        await thinking_msg.edit_text(plain)
 
     if error_message:
-        return f"❌ {error_message}"
+        return f"🦁 {error_message}"
 
-    return response_content.strip() or "✅ Done. (No text output)"
+    return final_output.strip() or "🦁 Done. (No text output)"
 
 
 # ─── Message helpers ──────────────────────────────────────────────────────────
@@ -185,11 +317,11 @@ def make_handlers(cfg: Config):
 
     async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not _is_authorized(update, cfg):
-            await update.message.reply_text("⛔ You are not authorized.")
+            await update.message.reply_text("🦁 You are not authorized.")
             return
         name = update.effective_user.first_name or "there"
         await update.message.reply_text(
-            f"👋 Hey {name}! SimhaCLI is live on your laptop.\n\n"
+            f"👋 Hey {name}! SimhaCLI🦁 is live on your laptop.\n\n"
             f"Model: `{cfg.model}`\n\n"
             "Send any prompt to run it through the agent.\n"
             "Use /help to see all /commands.",
@@ -215,7 +347,7 @@ def make_handlers(cfg: Config):
         await _safe_edit(thinking, result)
 
     async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Plain text → full agent run → final TEXT_COMPLETE content."""
+        """Plain text → full agent run → real-time progress updates."""
         if not _is_authorized(update, cfg):
             return
 
@@ -227,9 +359,9 @@ def make_handlers(cfg: Config):
         session_state = _get_session(context, uid)
 
         log.info(f"Agent prompt | user={uid} | prompt={prompt!r}")
-        thinking = await update.message.reply_text("🧠 Running…")
-        result = await _run_agent(prompt, cfg, session_state)
-        await _safe_edit(thinking, result)
+        thinking = await update.message.reply_text(" Starting SimhaCLI🦁...")
+        result = await _run_agent(prompt, cfg, session_state, thinking)
+        # The _run_agent already updates the message progressively and sets final text
 
     return cmd_start, handle_slash_command, handle_message
 
