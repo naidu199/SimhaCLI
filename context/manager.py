@@ -13,7 +13,7 @@ from utils.text import count_tokens
 @dataclass
 class MessageItem:
     role: str
-    content: str
+    content: str | list[dict[str, Any]]
     tool_call_id: str | None = None
     tool_calls: list[dict[str, Any]] | None = field(default_factory=list)
     token_count: int | None = None  # depends upon the model tokenizer
@@ -74,12 +74,27 @@ class ContextManager:
 
     def add_user_message(
         self,
-        content: str,
+        content: str | list[dict[str, Any]],
     ) -> None:
+        # For multimodal content, estimate tokens from text parts + image parts
+        if isinstance(content, list):
+            # Multimodal: count text tokens + image tokens
+            text_parts = []
+            image_count = 0
+            for part in content:
+                if part.get("type") == "text":
+                    text_parts.append(part.get("text", ""))
+                elif part.get("type") == "image_url":
+                    image_count += 1
+            token_count = count_tokens(" ".join(text_parts), self._model_name)
+            # Rough estimate: ~800 tokens per image (medium detail)
+            token_count += image_count * 800
+        else:
+            token_count = count_tokens(content or "", self._model_name)
         message = MessageItem(
             role="user",
             content=content,
-            token_count=count_tokens(content or "", self._model_name),
+            token_count=token_count,
         )
         self._messages.append(message)
 
@@ -155,6 +170,13 @@ class ContextManager:
         for msg in self._messages:
             if msg.token_count:
                 total += msg.token_count
+            elif isinstance(msg.content, list):
+                # Multimodal: count text tokens
+                text_parts = []
+                for part in msg.content:
+                    if part.get("type") == "text":
+                        text_parts.append(part.get("text", ""))
+                total += count_tokens(" ".join(text_parts), self._model_name)
             else:
                 total += count_tokens(msg.content, self._model_name)
 

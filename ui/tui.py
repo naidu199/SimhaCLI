@@ -589,7 +589,7 @@ class TUI:
             Text.assemble(
                 ("  [", "dim"),
                 ("@", "cyan bold"),
-                (" attach file", "dim"),
+                (" attach file/image", "dim"),
                 (" | ", "dim"),
                 ("/", "cyan bold"),
                 (" commands", "dim"),
@@ -781,27 +781,46 @@ class TUI:
         self.console.print(f"[error]Error: {error_message}[/error]")
 
     def display_file_attachments(self, attachments: list) -> None:
-        """Display visual feedback for attached files."""
+        """Display visual feedback for attached files (text + images)."""
         if not attachments:
             return
 
         from rich.table import Table
+        from utils.file_attachments import FileAttachment, ImageAttachment
 
-        table = Table(
-            show_header=True,
-            header_style="bold cyan",
-            border_style="dim",
-            box=box.SIMPLE,
-            padding=(0, 1),
-        )
-        table.add_column("File", style="path")
-        table.add_column("Lines", justify="right", style="dim")
-        table.add_column("Size", justify="right", style="dim")
+        text_atts = [a for a in attachments if isinstance(a, FileAttachment)]
+        image_atts = [a for a in attachments if isinstance(a, ImageAttachment)]
 
-        for att in attachments:
-            lines = att.content.count("\n") + 1
-            size = len(att.content.encode("utf-8"))
+        if text_atts:
+            table = Table(
+                show_header=True,
+                header_style="bold cyan",
+                border_style="dim",
+                box=box.SIMPLE,
+                padding=(0, 1),
+            )
+            table.add_column("File", style="path")
+            table.add_column("Lines", justify="right", style="dim")
+            table.add_column("Size", justify="right", style="dim")
 
+            for att in text_atts:
+                lines = att.content.count("\n") + 1
+                size = len(att.content.encode("utf-8"))
+
+                if size < 1024:
+                    size_str = f"{size} B"
+                elif size < 1024 * 1024:
+                    size_str = f"{size / 1024:.1f} KB"
+                else:
+                    size_str = f"{size / (1024 * 1024):.1f} MB"
+
+                table.add_row(att.relative_path, str(lines), size_str)
+
+            self.console.print("[cyan][📎 Attached text file(s)][/cyan]")
+            self.console.print(table)
+
+        for img in image_atts:
+            size = len(img.base64_data) * 3 // 4
             if size < 1024:
                 size_str = f"{size} B"
             elif size < 1024 * 1024:
@@ -809,9 +828,9 @@ class TUI:
             else:
                 size_str = f"{size / (1024 * 1024):.1f} MB"
 
-            table.add_row(att.relative_path, str(lines), size_str)
-
-        self.console.print(table)
+            self.console.print(
+                f"[magenta][🖼️ Image] {img.relative_path} ({img.mime_type}, {size_str})[/magenta]"
+            )
 
     def start_request_timer(self) -> None:
         """Start the overall request timer."""
@@ -1541,14 +1560,15 @@ Run these from your terminal, not in the chat:
   - `@src/main.js` - Attach from subdirectory
   - `@"file with spaces.txt"` - Attach file with spaces in name
   - `@./relative/path.py` - Explicit relative path
-- File contents are included in the message for the AI to analyze
-- Max file size: 1MB (text files only)
+- Text file contents are included for the AI to analyze (max 1MB)
+- Images are attached as base64 for vision-capable models (max 10MB)
+  - Supported: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.svg`, `.ico`
 
 ## Tips
 
 - Just type your message to chat with the agent
 - The agent can read, write, and execute code
 - Some operations require approval (can be configured)
-- Use @filename to quickly share code context with the AI
+- Use @filename to share code, configs, or images with the AI
 """
         self.console.print(Markdown(help_text))

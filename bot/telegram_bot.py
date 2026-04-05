@@ -14,10 +14,13 @@ Routing:
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import logging
+from pathlib import Path
 from typing import Optional
 
+import httpx
 from rich.console import Console
 from telegram import Update
 from telegram.ext import (
@@ -32,6 +35,12 @@ from telegram.error import BadRequest
 from agent.agent import Agent
 from agent.events import AgentEventType
 from config.config import Config
+from utils.file_attachments import (
+    format_message_with_attachments,
+    format_multimodal_message,
+    FileAttachment,
+    ImageAttachment,
+)
 
 log = logging.getLogger(__name__)
 
@@ -260,6 +269,71 @@ def _get_session(context: ContextTypes.DEFAULT_TYPE, uid: int) -> dict:
     return sessions.setdefault(uid, {})
 
 
+async def _download_photo_bytes(update: Update) -> Optional[bytes]:
+    """Download the photo file from Telegram and return raw bytes."""
+    if not update.message or not update.message.photo:
+        return None
+    photo = update.message.photo[-1]  # highest resolution
+    file = await photo.get_file()
+    file_bytes = await file.download_as_bytearray()
+    return bytes(file_bytes)
+
+
+async def _handle_photo(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    caption: str,
+    thinking_msg,
+) -> str:
+    """Handle a photo message from Telegram."""
+    photo_bytes = await _download_photo_bytes(update)
+    if not photo_bytes:
+        await _safe_edit(thinking_msg, "Failed to download photo.")
+        return ""
+
+    # Determine MIME type from Telegram
+    mime_type = "image/jpeg"  # Telegram photos are always JPEG
+    # Encode as base64
+    b64 = base64.b64encode(photo_bytes).decode("ascii")
+    size = len(b64) * 3 // 4  # approximate bytes
+
+    img = ImageAttachment(
+        path=Path("telegram_photo.jpg"),
+        relative_path="telegram_photo.jpg",
+        base64_data=b64,
+        mime_type=mime_type,
+    )
+
+    # Build the message to send — multimodal if images present, else plain text
+    user_input = caption if caption else ""
+    add_photo_info = f"\n\n[Photo attached: {mime_type}, {size:,} bytes]"
+    
+    # Check if model supports vision
+    model_supports_vision = getattr(cfg.model, 'supports_vision', True)
+    
+    if model_supports_vision:
+        # Send full multimodal message with image
+        multimodal = format_multimodal_message(user_input, [], [img], Path.cwd())
+        status_msg = f"📷 [Photo attached: {mime_type}, {size:,} bytes]\n\n⏳ Analyzing image with vision model..."
+    else:
+        # Fallback: just describe the image by name
+        multimodal = format_message_with_attachments(user_input, [], Path.cwd())
+        add_photo_info = f"\n\n[Image attached: {img.relative_path} - model does not support vision]"
+        status_msg = f"📷 [Photo attached: {mime_type}, {size:,} bytes]\n\n⚠️ Model does not support vision, image described by name only."
+    
+    caption_with_info = (
+        f"{caption}{add_photo_info}"
+        if caption
+        else add_photo_info
+    )
+    
+    await _safe_edit(thinking_msg, status_msg)
+    
+    uid = update.effective_user.id
+    session_state = _get_session(context, uid)
+    result = await _run_agent(multimodal, cfg, session_state, thinking_msg)
+    return result
+
 # ─── Handlers ─────────────────────────────────────────────────────────────────
 
 
@@ -317,7 +391,22 @@ def make_handlers(cfg: Config):
         result = await _run_agent(prompt, cfg, session_state, thinking)
         # The _run_agent already updates the message progressively and sets final text
 
-    return cmd_start, handle_slash_command, handle_message
+    async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Photo message -> download photo -> run agent with vision."""
+        if not _is_authorized(update, cfg):
+            return
+
+        caption = (update.message.caption or "").strip()
+        uid = update.effective_user.id
+        session_state = _get_session(context, uid)
+
+        log.info(f"Photo received | user={uid} | caption={caption!r}")
+        thinking = await update.message.reply_text("📷 Downloading photo...")
+        result = await _handle_photo(update, context, caption, thinking)
+
+
+
+    return cmd_start, handle_slash_command, handle_message, handle_photo
 
 
 # ─── Bot entry point ──────────────────────────────────────────────────────────
@@ -329,7 +418,7 @@ def run_bot(cfg: Config) -> None:
     if not cfg.telegram.allowed_user_ids:
         raise ValueError("No allowed_user_ids. Run `simhacli bot setup` first.")
 
-    cmd_start, handle_slash_command, handle_message = make_handlers(cfg)
+    cmd_start, handle_slash_command, handle_message, handle_photo = make_handlers(cfg)
 
     app = ApplicationBuilder().token(cfg.telegram.bot_token).build()
 
@@ -341,6 +430,14 @@ def run_bot(cfg: Config) -> None:
         MessageHandler(
             filters.COMMAND & ~filters.Regex(r"^/start"),
             handle_slash_command,
+        )
+    )
+
+    # Photo -> vision agent (must be before text handler)
+    app.add_handler(
+        MessageHandler(
+            filters.PHOTO | (filters.PHOTO & filters.CAPTION),
+            handle_photo,
         )
     )
 

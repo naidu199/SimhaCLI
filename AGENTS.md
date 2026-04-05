@@ -133,6 +133,7 @@ All communication uses `AgentEvent` dataclass (`agent/events.py`):
 name = "openrouter/free"      # any OpenAI-compatible model
 temperature = 1.0
 context_window = 256000
+supports_vision = false       # true if model can process images (GPT-4o, Claude-3, etc.)
 max_turns = 72
 max_tool_output_tokens = 50000
 

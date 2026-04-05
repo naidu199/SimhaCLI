@@ -248,6 +248,7 @@ api_base_url = "https://openrouter.ai/api/v1"
 
 max_turns = 72
 max_tool_output_tokens = 50000
+supports_vision = false       # true if model can process images (GPT-4o, Claude-3, etc.)
 approval = "on_request"
 hooks_enabled = true
 developer_instructions = "..."

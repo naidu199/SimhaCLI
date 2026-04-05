@@ -63,12 +63,22 @@ class Agent:
         with self._undo_lock:
             self._undo_stack.append((path, old_content, new_content))
 
-    async def run(self, message: str) -> AsyncGenerator[AgentEvent, None]:
+    async def run(self, message: str | list) -> AsyncGenerator[AgentEvent, None]:
         if self.session is None:
             yield AgentEvent.agent_error("Agent not initialized. Use 'async with Agent(...) as agent:'")
             return
         await self.session.hook_system.trigger_before_agent(message)
-        yield AgentEvent.agent_start(message=message)
+        # Extract user-readable text for event data — for multimodal messages, 
+        # pull the text parts only
+        msg_text = message
+        if isinstance(message, list):
+            text_parts = [
+                part.get("text", "")
+                for part in message
+                if part.get("type") == "text"
+            ]
+            msg_text = " ".join(p for p in text_parts if p) or "[Image attachment]"
+        yield AgentEvent.agent_start(message=msg_text)
         self.session.context_manager.add_user_message(message)
 
         final_message: str | None = None

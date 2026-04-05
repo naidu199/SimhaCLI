@@ -134,11 +134,7 @@ def _initialize_project_dir(cwd: Path) -> None:
 name = "openrouter/free"
 # temperature = 1.0              # Creativity level (0.0-2.0, higher = more creative)
 context_window = 256000          # Maximum context size
-
-# Popular free models on OpenRouter:
-# - "openrouter/free" (access to multiple free models)
-# - "openrouter/hunter-alpha" (specialized in code generation Recommended for coding tasks)
-# - "openrouter/healer-alpha" (specialized in debugging and fixing code issues Recommended for debugging tasks)
+# supports_vision = false        # Set to true if your model can process images
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -334,11 +330,7 @@ def save_config(config: Config) -> None:
     system_path = get_config_file_path()
 
     # Use Pydantic's model_dump to convert to dict, excluding None and private attrs
-    config_dict = config.model_dump(
-        exclude_none=True,
-        exclude_unset=True,
-        mode='json'
-    )
+    config_dict = config.model_dump(exclude_none=True, exclude_unset=True, mode="json")
 
     # Convert Path objects to strings
     def convert_paths(obj):
@@ -363,6 +355,7 @@ def set_config_value(section: str, key: str, value: Any) -> None:
     Properly handles multi-line values (like lists) by replacing the entire value block.
     """
     import tomli_w
+
     config_path = get_config_file_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -435,7 +428,9 @@ def set_config_value(section: str, key: str, value: Any) -> None:
 
         if key_start_idx is not None:
             # Replace the entire key block (key_start_idx .. key_end_idx-1)
-            indent = lines[key_start_idx][: len(lines[key_start_idx]) - len(lines[key_start_idx].lstrip())]
+            indent = lines[key_start_idx][
+                : len(lines[key_start_idx]) - len(lines[key_start_idx].lstrip())
+            ]
             # Build replacement block: first line with key, subsequent lines with proper indentation for multi-line
             replaced_lines = [f"{indent}{assignment_lines[0]}"] + [
                 f"{indent}    {line}" if i > 0 else line
@@ -617,7 +612,9 @@ def load_config(cwd: Path | None = None, prompt_api: bool = True) -> Config:
             # Filter out global-only keys that should NOT be overridden by project config
             GLOBAL_ONLY_KEYS = {"api_key", "api_base_url", "telegram"}
             filtered_project_config = {
-                k: v for k, v in project_config_dict.items() if k not in GLOBAL_ONLY_KEYS
+                k: v
+                for k, v in project_config_dict.items()
+                if k not in GLOBAL_ONLY_KEYS
             }
             config_dict = _merge_dicts(config_dict, filtered_project_config)
         except ConfigError:
@@ -632,7 +629,9 @@ def load_config(cwd: Path | None = None, prompt_api: bool = True) -> Config:
             config_dict["developer_instructions"] = agent_md_content
 
     # Check for API credentials and prompt if missing (only if prompt_api=True)
-    api_key, api_base_url = _prompt_for_api_credentials(config_dict, system_path, prompt=prompt_api)
+    api_key, api_base_url = _prompt_for_api_credentials(
+        config_dict, system_path, prompt=prompt_api
+    )
 
     # Update config_dict with credentials
     credentials_updated = False

@@ -10,6 +10,7 @@ from ui.tui import TUI, get_console
 from utils.file_attachments import (
     parse_attachments,
     format_message_with_attachments,
+    format_multimodal_message,
 )
 
 from cli.factory import create_command_registry
@@ -22,7 +23,7 @@ try:
 
     __version__ = version("simhacli")
 except Exception:
-    __version__ = "1.5.0"
+    __version__ = "1.5.1"
 
 console = get_console()
 
@@ -174,14 +175,39 @@ class SimhaCLI:
             return None
 
         self._stop_requested = False
-        _, attachments = parse_attachments(message, self.config.cwd)
-
-        if attachments:
-            self.tui.display_file_attachments(attachments)
-
-        formatted_message = format_message_with_attachments(
-            message, attachments, self.config.cwd
+        cleaned, text_attachments, image_attachments = parse_attachments(
+            message, self.config.cwd
         )
+
+        # Show attachment summaries to user
+        if text_attachments:
+            self.tui.display_file_attachments(text_attachments)
+        if image_attachments:
+            for img in image_attachments:
+                size = len(img.base64_data) * 3 // 4
+                self.tui.console.print(
+                    f"[cyan][Image] {img.relative_path} ({img.mime_type}, {size:,} bytes)[/cyan]"
+                )
+
+        # Check if model supports vision
+        has_images = len(image_attachments) > 0
+        model_supports_vision = getattr(self.config.model, 'supports_vision', True)
+        
+        if has_images and not model_supports_vision:
+            self.tui.console.print(
+                "[yellow]Warning: Current model does not support vision. "
+                "Images will be described by filename only.[/yellow]"
+            )
+
+        # Build the message to send — multimodal if images present, else plain text
+        if has_images and model_supports_vision:
+            formatted_message = format_multimodal_message(
+                message, text_attachments, image_attachments, self.config.cwd
+            )
+        else:
+            formatted_message = format_message_with_attachments(
+                message, text_attachments, self.config.cwd
+            )
 
         response_content = ""
         text_started = False

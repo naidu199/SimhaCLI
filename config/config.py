@@ -10,6 +10,7 @@ class ModelConfig(BaseModel):
     name: str = "openrouter/free"
     temperature: float = Field(default=1.0, ge=0.0, le=2.0)
     context_window: int = 256_000
+    supports_vision: bool = False  # Set to True only if your model can process images
 
 
 class TelegramConfig(BaseModel):
