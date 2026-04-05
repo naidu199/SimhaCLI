@@ -284,6 +284,7 @@ async def _handle_photo(
     context: ContextTypes.DEFAULT_TYPE,
     caption: str,
     thinking_msg,
+    cfg: Config,
 ) -> str:
     """Handle a photo message from Telegram."""
     photo_bytes = await _download_photo_bytes(update)
@@ -402,7 +403,7 @@ def make_handlers(cfg: Config):
 
         log.info(f"Photo received | user={uid} | caption={caption!r}")
         thinking = await update.message.reply_text("📷 Downloading photo...")
-        result = await _handle_photo(update, context, caption, thinking)
+        result = await _handle_photo(update, context, caption, thinking, cfg)
 
 
 
