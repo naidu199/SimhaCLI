@@ -348,6 +348,12 @@ Options:
 
 ## 📝 Changelog
 
+### v1.5.2 (April 5, 2026)
+
+- **Image Attachments & Multimodal Messaging in Telegram Bot**: Send photos and get AI analysis with vision-capable models
+- **Enhanced Real-time Progress**: Live spinners, tool call tracking, and progressive status updates in Telegram
+- **Improved Response Formatting**: Better loading indicators and agent output presentation
+
 ### v1.5.0 (April 1, 2026)
 
 - **Telegram Bot Integration**: Access SimhaCLI remotely from your phone
