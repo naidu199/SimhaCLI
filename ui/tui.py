@@ -1088,33 +1088,39 @@ class TUI:
 
         if name == "read_file" and success:
             if primary_path:
-                start_line, code = self._extract_read_file_code(output)
+                result = self._extract_read_file_code(output)
+                if result is not None:
+                    start_line, code = result
 
-                shown_start = metadata.get("shown_start")
-                shown_end = metadata.get("shown_end")
-                total_lines = metadata.get("total_lines")
-                pl = self._guess_language(primary_path)
+                    shown_start = metadata.get("shown_start")
+                    shown_end = metadata.get("shown_end")
+                    total_lines = metadata.get("total_lines")
+                    pl = self._guess_language(primary_path)
 
-                header_parts = [display_path_rel_to_cwd(primary_path, self.cwd)]
-                header_parts.append(" • ")
+                    header_parts = [display_path_rel_to_cwd(primary_path, self.cwd)]
+                    header_parts.append(" • ")
 
-                if shown_start and shown_end and total_lines:
-                    header_parts.append(
-                        f"lines {shown_start}-{shown_end} of {total_lines}"
+                    if shown_start and shown_end and total_lines:
+                        header_parts.append(
+                            f"lines {shown_start}-{shown_end} of {total_lines}"
+                        )
+
+                    header = "".join(header_parts)
+                    blocks.append(Text(header, style="muted"))
+                    blocks.append(
+                        Syntax(
+                            code,
+                            start_line=start_line,
+                            lexer=pl,
+                            theme=self.theme.syntax,
+                        )
                     )
-
-                header = "".join(header_parts)
-                blocks.append(Text(header, style="muted"))
-                blocks.append(
-                    Syntax(
-                        code,
-                        pl,
-                        theme="monokai",
-                        line_numbers=True,
-                        start_line=start_line,
-                        word_wrap=False,
-                    )
-                )
+                else:
+                    blocks.append(Syntax(
+                        output,
+                        lexer="text",
+                        theme=self.theme.syntax,
+                    ))
             else:
                 output_display = truncate_text(
                     output,
