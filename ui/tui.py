@@ -1112,14 +1112,14 @@ class TUI:
                             code,
                             start_line=start_line,
                             lexer=pl,
-                            theme=self.theme.syntax,
+                            theme="monokai",
                         )
                     )
                 else:
                     blocks.append(Syntax(
                         output,
                         lexer="text",
-                        theme=self.theme.syntax,
+                        theme="monokai",
                     ))
             else:
                 output_display = truncate_text(

@@ -347,16 +347,20 @@ def save_config(config: Config) -> None:
     _save_config_toml(system_path, config_dict)
 
 
-def set_config_value(section: str, key: str, value: Any) -> None:
-    """Set a configuration value in the system config file, preserving other content.
+def set_config_value(
+    section: str, key: str, value: Any, config_path: Path | None = None
+) -> None:
+    """Set a configuration value in a TOML config file, preserving other content.
 
+    If config_path is None, uses the system config file.
     Creates the file if it doesn't exist. If the section doesn't exist, it will be added.
     If the key exists, it will be updated. If it's commented, it will be uncommented.
     Properly handles multi-line values (like lists) by replacing the entire value block.
     """
     import tomli_w
 
-    config_path = get_config_file_path()
+    if config_path is None:
+        config_path = get_config_file_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Generate the assignment line(s) using tomli_w
@@ -373,45 +377,109 @@ def set_config_value(section: str, key: str, value: Any) -> None:
     content = config_path.read_text(encoding="utf-8")
     lines = content.splitlines()
 
-    section_header = f"[{section}]"
-    section_idx = None
-    for i, line in enumerate(lines):
-        if line.strip() == section_header:
-            section_idx = i
-            break
+    if section:
+        section_header = f"[{section}]"
+        section_is_subtable = "." in section
+        if section_is_subtable:
+            # Handle dotted table names like "mcp_servers.filesystem"
+            section_header = "[" + ".".join(section.split(".")) + "]"
+        section_idx = None
+        for i, line in enumerate(lines):
+            if line.strip() == section_header:
+                section_idx = i
+                break
 
-    if section_idx is not None:
-        # Find the extent of the section (lines until next section or end)
-        section_start = section_idx + 1
+        if section_idx is not None:
+            # Find the extent of the section (lines until next section or end)
+            section_start = section_idx + 1
+            section_end = len(lines)
+            for i in range(section_start, len(lines)):
+                stripped = lines[i].strip()
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    section_end = i
+                    break
+
+            # Look for the key within the section, including multi-line values
+            key_start_idx = None
+            key_end_idx = None  # exclusive (points to line after value block)
+            for i in range(section_start, section_end):
+                line = lines[i]
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                # Determine effective key name (uncomment if needed)
+                line_content = stripped
+                if stripped.startswith("#"):
+                    line_content = stripped[1:].strip()
+                # Check if this line starts an assignment to our key
+                if "=" in line_content:
+                    left = line_content.split("=", 1)[0].strip()
+                    if left == key:
+                        key_start_idx = i
+                        # Determine the end of the multi-line value, if any
+                        # In TOML, multi-line values are indented more than the key line
+                        base_indent = len(line) - len(line.lstrip())
+                        # The assignment may end on the same line (after '=') or continue
+                        # Continue consuming lines that are indented more than base_indent
+                        j = i + 1
+                        while j < section_end:
+                            next_line = lines[j]
+                            if not next_line.strip():
+                                j += 1
+                                continue
+                            next_indent = len(next_line) - len(next_line.lstrip())
+                            if next_indent > base_indent:
+                                j += 1
+                                continue
+                            break
+                        key_end_idx = j
+                        break
+
+            if key_start_idx is not None:
+                # Replace the entire key block (key_start_idx .. key_end_idx-1)
+                indent = lines[key_start_idx][
+                    : len(lines[key_start_idx]) - len(lines[key_start_idx].lstrip())
+                ]
+                # Build replacement block: first line with key, subsequent lines with proper indentation for multi-line
+                replaced_lines = [f"{indent}{assignment_lines[0]}"] + [
+                    f"{indent}    {line}" if i > 0 else line
+                    for i, line in enumerate(assignment_lines[1:])
+                ]
+                lines[key_start_idx:key_end_idx] = replaced_lines
+            else:
+                # Insert new key at the end of the section (before next section)
+                lines[section_end:section_end] = assignment_lines
+        else:
+            # Section does not exist, append it at the end
+            if lines and lines[-1].strip() != "":
+                lines.append("")  # blank line separator
+            lines.append(section_header)
+            lines.extend(assignment_lines)
+    else:
+        # Top-level key (no section header) — search from line 0 until first section
+        section_start = 0
         section_end = len(lines)
-        for i in range(section_start, len(lines)):
-            stripped = lines[i].strip()
+        for i, line in enumerate(lines):
+            stripped = line.strip()
             if stripped.startswith("[") and stripped.endswith("]"):
                 section_end = i
                 break
 
-        # Look for the key within the section, including multi-line values
         key_start_idx = None
-        key_end_idx = None  # exclusive (points to line after value block)
+        key_end_idx = None
         for i in range(section_start, section_end):
             line = lines[i]
             stripped = line.strip()
             if not stripped:
                 continue
-            # Determine effective key name (uncomment if needed)
             line_content = stripped
             if stripped.startswith("#"):
                 line_content = stripped[1:].strip()
-            # Check if this line starts an assignment to our key
             if "=" in line_content:
                 left = line_content.split("=", 1)[0].strip()
                 if left == key:
                     key_start_idx = i
-                    # Determine the end of the multi-line value, if any
-                    # In TOML, multi-line values are indented more than the key line
                     base_indent = len(line) - len(line.lstrip())
-                    # The assignment may end on the same line (after '=') or continue
-                    # Continue consuming lines that are indented more than base_indent
                     j = i + 1
                     while j < section_end:
                         next_line = lines[j]
@@ -427,25 +495,18 @@ def set_config_value(section: str, key: str, value: Any) -> None:
                     break
 
         if key_start_idx is not None:
-            # Replace the entire key block (key_start_idx .. key_end_idx-1)
             indent = lines[key_start_idx][
                 : len(lines[key_start_idx]) - len(lines[key_start_idx].lstrip())
             ]
-            # Build replacement block: first line with key, subsequent lines with proper indentation for multi-line
             replaced_lines = [f"{indent}{assignment_lines[0]}"] + [
                 f"{indent}    {line}" if i > 0 else line
                 for i, line in enumerate(assignment_lines[1:])
             ]
             lines[key_start_idx:key_end_idx] = replaced_lines
         else:
-            # Insert new key at the end of the section (before next section)
-            lines.insert(section_end, *assignment_lines)
-    else:
-        # Section does not exist, append it at the end
-        if lines and lines[-1].strip() != "":
-            lines.append("")  # blank line separator
-        lines.append(section_header)
-        lines.extend(assignment_lines)
+            lines = list(lines)  # ensure mutable
+            # Insert before first section header
+            lines[section_end:section_end] = assignment_lines
 
     # Write back with trailing newline
     new_content = "\n".join(lines) + "\n"
@@ -663,8 +724,14 @@ def load_config(cwd: Path | None = None, prompt_api: bool = True) -> Config:
             existing_config.setdefault("model", {})["name"] = "openrouter/free"
             config_dict.setdefault("model", {})["name"] = "openrouter/free"
 
-        # Save to system config file
-        _save_config_toml(system_path, existing_config)
+        # Save credentials to system config file (preserve comments by updating individual keys)
+        set_config_value("", "api_key", api_key)
+        set_config_value("", "api_base_url", api_base_url)
+        if api_base_url == DEFAULT_API_BASE_URL and not existing_config.get(
+            "model", {}
+        ).get("name"):
+            set_config_value("model", "name", "openrouter/free")
+            config_dict.setdefault("model", {})["name"] = "openrouter/free"
 
     try:
         config = Config(**config_dict)

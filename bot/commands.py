@@ -186,15 +186,23 @@ def bot_setup():
         console.print("[red]At least one user ID is required.[/red]")
         raise SystemExit(1)
 
-    # Persist using set_config_value to preserve file structure
-    from config.loader import set_config_value
+    # Persist using set_config_value to preserve file structure. If that fails
+    # due to unexpected TOML structure, fall back to full config save.
+    from config.loader import set_config_value, save_config
 
     try:
         set_config_value("telegram", "bot_token", token)
         set_config_value("telegram", "allowed_user_ids", allowed_ids)
     except Exception as e:
-        console.print(f"[red]Failed to save config:[/red] {e}")
-        raise SystemExit(1)
+        try:
+            cfg.telegram.bot_token = token
+            cfg.telegram.allowed_user_ids = allowed_ids
+            save_config(cfg)
+        except Exception as save_error:
+            console.print(
+                f"[red]Failed to save config:[/red] {e} [dim](fallback failed: {save_error})[/dim]"
+            )
+            raise SystemExit(1)
 
     console.print(
         f"\n[bold green]Saved to config.[/bold green]\n"

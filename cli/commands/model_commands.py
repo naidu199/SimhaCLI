@@ -26,21 +26,13 @@ class ModelCommand(Command):
                 agent.session.context_manager.refresh_system_prompt(tools=tools)
                 console.print("[dim]System prompt updated with new model info[/dim]")
 
-                # Save to project config (local only)
+                # Save to project config (local only, preserving comments)
                 project_config_path = config.cwd / ".simhacli" / "config.toml"
                 if project_config_path.parent.exists():
                     try:
-                        from config.loader import _parse_toml, _save_config_toml
+                        from config.loader import set_config_value
 
-                        # Read existing config or create new
-                        existing_config = {}
-                        if project_config_path.is_file():
-                            existing_config = _parse_toml(project_config_path)
-                        # Ensure model section exists
-                        if "model" not in existing_config:
-                            existing_config["model"] = {}
-                        existing_config["model"]["name"] = args
-                        _save_config_toml(project_config_path, existing_config)
+                        set_config_value("model", "name", args, config_path=project_config_path)
                         console.print(f"[dim]Model saved to project config: {project_config_path}[/dim]")
                     except Exception as e:
                         console.print(f"[warning]Could not save to project config: {e}[/warning]")
@@ -69,6 +61,16 @@ class ApprovalCommand(Command):
                 approval = ApprovalPolicy(args)
                 config.approval = approval
                 console.print(f"[success]Approval policy changed to: {args}[/success]")
+                
+                # Save to project config (local only, preserving comments)
+                project_config_path = config.cwd / ".simhacli" / "config.toml"
+                if project_config_path.parent.exists():
+                    try:
+                        from config.loader import set_config_value
+                        set_config_value("", "approval", args, config_path=project_config_path)
+                        console.print(f"[dim]Approval saved to project config: {project_config_path}[/dim]")
+                    except Exception as e:
+                        console.print(f"[warning]Could not save to project config: {e}[/warning]")
             except ValueError:
                 console.print(f"[error]Incorrect approval policy: {args}[/error]")
                 console.print(f"Valid options: {', '.join(p.value for p in ApprovalPolicy)}")
@@ -95,7 +97,7 @@ class CredentialsCommand(Command):
 
         from rich.prompt import Prompt, Confirm
         from rich.panel import Panel
-        from config.loader import get_config_file_path, _parse_toml, _save_config_toml, _mask_api_key
+        from config.loader import get_config_file_path, set_config_value, _mask_api_key
 
         config_path = get_config_file_path()
 
@@ -120,12 +122,6 @@ class CredentialsCommand(Command):
             return CommandResult(success=True)
 
         operation = args.strip()
-        existing_config = {}
-        if config_path.is_file():
-            try:
-                existing_config = _parse_toml(config_path)
-            except Exception:
-                pass
 
         api_base_url = config.get_api_base_url()
         api_key = config.get_api_key()
@@ -143,7 +139,7 @@ class CredentialsCommand(Command):
                     "[bold yellow]Enter new API Base URL[/bold yellow]",
                     default=api_base_url or "",
                 )
-            existing_config["api_base_url"] = api_base_url
+            set_config_value("auth", "api_base_url", api_base_url)
             config.api_base_url = api_base_url
             console.print(f"[green]✓ Base URL updated: {api_base_url}[/green]")
 
@@ -153,7 +149,7 @@ class CredentialsCommand(Command):
             )
             if new_key.strip():
                 api_key = new_key.strip()
-                existing_config["api_key"] = api_key
+                set_config_value("auth", "api_key", api_key)
                 config.api_key = api_key
                 console.print(f"[green]✓ API Key updated: {_mask_api_key(api_key)}[/green]")
             else:
@@ -166,7 +162,7 @@ class CredentialsCommand(Command):
             )
             if new_key.strip():
                 api_key = new_key.strip()
-                existing_config["api_key"] = api_key
+                set_config_value("auth", "api_key", api_key)
                 config.api_key = api_key
                 console.print(f"[green]✓ API Key updated: {_mask_api_key(api_key)}[/green]")
             else:
@@ -185,7 +181,7 @@ class CredentialsCommand(Command):
                     "[bold yellow]Enter new API Base URL[/bold yellow]",
                     default=api_base_url or "",
                 )
-            existing_config["api_base_url"] = api_base_url
+            set_config_value("auth", "api_base_url", api_base_url)
             config.api_base_url = api_base_url
             console.print(f"[green]✓ Base URL updated: {api_base_url}[/green]")
 
@@ -193,7 +189,6 @@ class CredentialsCommand(Command):
             console.print(f"[error]Unknown operation: {operation}[/error]")
             return CommandResult(success=False)
 
-        _save_config_toml(config_path, existing_config)
         console.print(f"\n[green]✓ Credentials saved to: {config_path}[/green]")
 
         if agent and agent.session:
