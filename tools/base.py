@@ -21,6 +21,26 @@ class ToolKind(str, Enum):
     MCP = "mcp"
 
 
+class OriginalContent(str):
+    """Pre-edit file content that also records how to restore it.
+
+    Behaves exactly like ``str``. The extra attributes let ``/undo`` tell a
+    newly created file apart from an existing file that was originally empty,
+    and write the content back using the file's original encoding.
+    """
+
+    existed: bool
+    encoding: str
+
+    def __new__(
+        cls, value: str = "", *, existed: bool = True, encoding: str = "utf-8"
+    ) -> "OriginalContent":
+        obj = super().__new__(cls, value)
+        obj.existed = existed
+        obj.encoding = encoding
+        return obj
+
+
 @dataclass
 class FileDiff:
     path: Path
@@ -29,6 +49,12 @@ class FileDiff:
 
     is_new_file: bool = False
     is_deletion: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.old_content, OriginalContent):
+            self.old_content = OriginalContent(
+                self.old_content, existed=not self.is_new_file
+            )
 
     def to_diff(self) -> str:
         import difflib
@@ -205,31 +231,58 @@ class Tool(abc.ABC):
 
     @staticmethod
     def _resolve_refs(
-        properties: dict[str, Any], defs: dict[str, Any]
+        properties: dict[str, Any],
+        defs: dict[str, Any],
+        _seen: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         """Recursively resolve $ref pointers to inline definitions.
 
         This keeps tool schemas flat and understandable by small models that
         do not handle JSON-Schema $ref properly.
         """
+        return {
+            key: Tool._resolve_schema_refs(value, defs, _seen)
+            for key, value in properties.items()
+        }
+
+    @staticmethod
+    def _resolve_schema_refs(
+        node: Any, defs: dict[str, Any], _seen: frozenset[str] = frozenset()
+    ) -> Any:
+        """Inline $ref pointers in a single schema node (and everything below it)."""
         import copy
 
-        resolved: dict[str, Any] = {}
-        for key, value in properties.items():
-            if isinstance(value, dict):
-                if "$ref" in value:
-                    ref_name = value["$ref"].split("/")[-1]
-                    if ref_name in defs:
-                        resolved[key] = copy.deepcopy(defs[ref_name])
-                    else:
-                        resolved[key] = value
-                else:
-                    resolved[key] = copy.deepcopy(value)
-                    # Recurse into nested properties
-                    if "properties" in resolved[key]:
-                        resolved[key]["properties"] = Tool._resolve_refs(
-                            resolved[key]["properties"], defs
-                        )
-            else:
-                resolved[key] = value
+        if isinstance(node, list):
+            return [Tool._resolve_schema_refs(item, defs, _seen) for item in node]
+
+        if not isinstance(node, dict):
+            return node
+
+        if "$ref" in node:
+            ref_name = str(node["$ref"]).split("/")[-1]
+            # Leave unknown or self-recursive references untouched.
+            if ref_name not in defs or ref_name in _seen:
+                return copy.deepcopy(node)
+            resolved = copy.deepcopy(defs[ref_name])
+            # Keep sibling keywords (e.g. description) next to the $ref.
+            for key, value in node.items():
+                if key != "$ref":
+                    resolved.setdefault(key, copy.deepcopy(value))
+            return Tool._resolve_schema_refs(resolved, defs, _seen | {ref_name})
+
+        resolved = copy.deepcopy(node)
+
+        if isinstance(resolved.get("properties"), dict):
+            resolved["properties"] = Tool._resolve_refs(
+                resolved["properties"], defs, _seen
+            )
+
+        for key in ("items", "additionalProperties", "not"):
+            if isinstance(resolved.get(key), (dict, list)):
+                resolved[key] = Tool._resolve_schema_refs(resolved[key], defs, _seen)
+
+        for key in ("anyOf", "oneOf", "allOf", "prefixItems"):
+            if isinstance(resolved.get(key), list):
+                resolved[key] = Tool._resolve_schema_refs(resolved[key], defs, _seen)
+
         return resolved

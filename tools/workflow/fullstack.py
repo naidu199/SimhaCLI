@@ -1,12 +1,102 @@
 """Full-stack development workflows."""
 
+import asyncio
 import logging
+import re
+import subprocess
+from pathlib import Path
 from typing import Any
 
 from tools.workflow.engine import Workflow, WorkflowStep, WorkflowStepResult, StepStatus
 from tools.workflow.steps import MCPToolStep, ShellCommandStep
 
 logger = logging.getLogger(__name__)
+
+# Default timeout (seconds) for git invocations
+GIT_TIMEOUT = 60
+
+# Safe PostgreSQL identifier (unquoted-style) for CREATE DATABASE
+_DB_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _base_cwd(context: dict[str, Any]) -> Path:
+    """Directory the workflow was invoked from (falls back to config cwd)."""
+    base = context.get("_cwd")
+    if base:
+        return Path(base)
+    config = context.get("_config")
+    if config is not None and getattr(config, "cwd", None):
+        return Path(config.cwd)
+    return Path.cwd()
+
+
+def _resolve_project_path(context: dict[str, Any], default: str = ".") -> str:
+    """Resolve project_path against the invocation cwd, not the process cwd."""
+    path = Path(str(context.get("project_path") or default)).expanduser()
+    if not path.is_absolute():
+        path = _base_cwd(context) / path
+    return str(path)
+
+
+async def _run(
+    cmd: list[str] | str,
+    cwd: str,
+    timeout: float = GIT_TIMEOUT,
+    shell: bool = False,
+) -> subprocess.CompletedProcess:
+    """Run a subprocess without blocking the event loop."""
+    return await asyncio.to_thread(
+        subprocess.run,
+        cmd,
+        shell=shell,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+        timeout=timeout,
+    )
+
+
+def _is_option_like(value: str) -> bool:
+    """True if a value would be parsed by git as a command-line option."""
+    return str(value).startswith("-")
+
+
+def _parse_env_key(line: str) -> str | None:
+    """Return the variable name of a KEY=VALUE .env line, or None."""
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        return None
+    if stripped.startswith("export "):
+        stripped = stripped[len("export ") :]
+    key = stripped.partition("=")[0].strip()
+    return key or None
+
+
+def _format_env_line(key: str, value: Any) -> str:
+    """Format a .env assignment, double-quoted with escaping."""
+    text = "" if value is None else str(value)
+    text = (
+        text.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
+    return f'{key}="{text}"'
+
+
+def _ensure_gitignored(project_path: str, entry: str) -> None:
+    """Append `entry` to <project>/.gitignore unless it is already ignored."""
+    gitignore = Path(project_path) / ".gitignore"
+    content = ""
+    if gitignore.exists():
+        content = gitignore.read_text(encoding="utf-8")
+        existing = {line.strip() for line in content.splitlines()}
+        if {entry, f"/{entry}", f"{entry}*", f"/{entry}*"} & existing:
+            return
+    with open(gitignore, "a", encoding="utf-8") as f:
+        if content and not content.endswith("\n"):
+            f.write("\n")
+        f.write(f"{entry}\n")
 
 
 class CreateGitHubRepoStep(WorkflowStep):
@@ -358,6 +448,16 @@ Manual alternative (if MCP not available):
         db_name = context["db_name"]
         db_schema = context.get("db_schema", None)
 
+        if not isinstance(db_name, str) or not _DB_NAME_RE.match(db_name):
+            return WorkflowStepResult(
+                step_name=self.name,
+                status=StepStatus.FAILED,
+                error=(
+                    f"Invalid database name {db_name!r}: must match "
+                    "^[A-Za-z_][A-Za-z0-9_]*$"
+                ),
+            )
+
         # Find a tool that can create databases or run queries
         create_db_tool = None
         query_tool = None
@@ -405,6 +505,15 @@ Manual alternative (if MCP not available):
                     error="No suitable PostgreSQL tool found for database creation",
                 )
 
+            # Check CREATE DATABASE result before applying any schema
+            if result.error:
+                return WorkflowStepResult(
+                    step_name=self.name,
+                    status=StepStatus.FAILED,
+                    error=result.error,
+                    output=result.output or "",
+                )
+
             metadata = {
                 "db_name": db_name,
                 "db_provider": "postgresql",
@@ -426,19 +535,12 @@ Manual alternative (if MCP not available):
                 if schema_result.error:
                     return WorkflowStepResult(
                         step_name=self.name,
-                        status=StepStatus.COMPLETED,
-                        output=f"Database '{db_name}' created. Schema creation failed: {schema_result.error}",
+                        status=StepStatus.FAILED,
+                        error=f"Schema creation failed: {schema_result.error}",
+                        output=f"Database '{db_name}' created, but schema was not applied",
                         metadata=metadata,
                     )
                 metadata["db_schema_applied"] = True
-
-            if result.error:
-                return WorkflowStepResult(
-                    step_name=self.name,
-                    status=StepStatus.FAILED,
-                    error=result.error,
-                    output=result.output or "",
-                )
 
             return WorkflowStepResult(
                 step_name=self.name,
@@ -508,7 +610,7 @@ class DeployToVercelStep(WorkflowStep):
             from tools.base import ToolInvocation
             from pathlib import Path
 
-            project_path = context["project_path"]
+            project_path = _resolve_project_path(context)
             project_name = context.get("project_name", None)
 
             params = {
@@ -567,17 +669,13 @@ class DeployToVercelStep(WorkflowStep):
 
     async def _deploy_with_shell(self, context: dict[str, Any]) -> WorkflowStepResult:
         """Fallback deployment using vercel CLI."""
-        import subprocess
-
-        project_path = context["project_path"]
+        project_path = _resolve_project_path(context)
 
         try:
-            # Check if vercel CLI is installed
-            check = subprocess.run(
-                "vercel --version",
-                shell=True,
-                capture_output=True,
-                text=True,
+            # Check if vercel CLI is installed (constant command; shell=True so
+            # the vercel.cmd shim resolves on Windows)
+            check = await _run(
+                "vercel --version", cwd=project_path, timeout=60, shell=True
             )
 
             if check.returncode != 0:
@@ -592,14 +690,7 @@ class DeployToVercelStep(WorkflowStep):
                 )
 
             # Deploy
-            result = subprocess.run(
-                "vercel --yes",
-                shell=True,
-                capture_output=True,
-                text=True,
-                cwd=project_path,
-                timeout=300,
-            )
+            result = await _run("vercel --yes", cwd=project_path, timeout=300, shell=True)
 
             if result.returncode != 0:
                 return WorkflowStepResult(
@@ -800,34 +891,33 @@ class PushToGitHubStep(WorkflowStep):
         return errors
 
     async def execute(self, context: dict[str, Any]) -> WorkflowStepResult:
-        import subprocess
-        import re
+        repo_path = _resolve_project_path(context)
+        commit_message = str(context.get("commit_message") or "Update via SimhaCLI")
+        files = context.get("files") or []  # Specific files to add, or all if empty
+        if isinstance(files, str):
+            files = [files]
+        branch = context.get("branch")  # Default: current branch (resolved below)
+        remote = str(context.get("remote") or "origin")
 
-        repo_path = context.get("project_path", ".")
-        commit_message = context.get("commit_message", f"Update via SimhaCLI")
-        files = context.get("files", [])  # Specific files to add, or all if empty
-        branch = context.get("branch", "main")
-        remote = context.get("remote", "origin")
+        # Values are passed as argv (no shell), but still must not be parsed
+        # as git options.
+        for label, value in (("remote", remote), ("branch", branch)):
+            if value and _is_option_like(value):
+                return WorkflowStepResult(
+                    step_name=self.name,
+                    status=StepStatus.FAILED,
+                    error=f"Invalid {label}: {value!r}",
+                )
 
         try:
             # Check if it's a git repo
-            check_result = subprocess.run(
-                "git rev-parse --is-inside-work-tree",
-                shell=True,
-                capture_output=True,
-                text=True,
-                cwd=repo_path,
+            check_result = await _run(
+                ["git", "rev-parse", "--is-inside-work-tree"], cwd=repo_path
             )
 
             if check_result.returncode != 0:
                 # Try to initialize
-                init_result = subprocess.run(
-                    "git init",
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    cwd=repo_path,
-                )
+                init_result = await _run(["git", "init"], cwd=repo_path)
                 if init_result.returncode != 0:
                     return WorkflowStepResult(
                         step_name=self.name,
@@ -838,12 +928,8 @@ class PushToGitHubStep(WorkflowStep):
             # Add files
             if files:
                 for file in files:
-                    add_result = subprocess.run(
-                        f'git add "{file}"',
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        cwd=repo_path,
+                    add_result = await _run(
+                        ["git", "add", "--", str(file)], cwd=repo_path
                     )
                     if add_result.returncode != 0:
                         return WorkflowStepResult(
@@ -852,14 +938,9 @@ class PushToGitHubStep(WorkflowStep):
                             error=f"Failed to add file '{file}': {add_result.stderr}",
                         )
             else:
-                # Add all changes
-                add_result = subprocess.run(
-                    "git add -A",
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    cwd=repo_path,
-                )
+                # Add all changes under the project directory only (avoid
+                # staging unrelated files when nested inside a parent repo)
+                add_result = await _run(["git", "add", "-A", "--", "."], cwd=repo_path)
                 if add_result.returncode != 0:
                     return WorkflowStepResult(
                         step_name=self.name,
@@ -867,13 +948,9 @@ class PushToGitHubStep(WorkflowStep):
                         error=f"Failed to stage files: {add_result.stderr}",
                     )
 
-            # Check if there are changes to commit
-            status_result = subprocess.run(
-                "git status --porcelain",
-                shell=True,
-                capture_output=True,
-                text=True,
-                cwd=repo_path,
+            # Check if there are staged changes to commit
+            status_result = await _run(
+                ["git", "diff", "--cached", "--name-only"], cwd=repo_path
             )
 
             if not status_result.stdout.strip():
@@ -885,34 +962,37 @@ class PushToGitHubStep(WorkflowStep):
                 )
 
             # Commit
-            commit_result = subprocess.run(
-                f'git commit -m "{commit_message}"',
-                shell=True,
-                capture_output=True,
-                text=True,
-                cwd=repo_path,
+            commit_result = await _run(
+                ["git", "commit", "-m", commit_message], cwd=repo_path
             )
 
             if commit_result.returncode != 0:
                 return WorkflowStepResult(
                     step_name=self.name,
                     status=StepStatus.FAILED,
-                    error=f"Commit failed: {commit_result.stderr}",
+                    error=f"Commit failed: {commit_result.stderr or commit_result.stdout}",
                 )
 
             # Get commit hash
-            hash_result = subprocess.run(
-                "git rev-parse HEAD",
-                shell=True,
-                capture_output=True,
-                text=True,
-                cwd=repo_path,
-            )
+            hash_result = await _run(["git", "rev-parse", "HEAD"], cwd=repo_path)
             commit_hash = (
                 hash_result.stdout.strip()[:7]
                 if hash_result.returncode == 0
                 else "unknown"
             )
+
+            # Default to the current branch instead of assuming "main"
+            if not branch:
+                branch_result = await _run(
+                    ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_path
+                )
+                current = branch_result.stdout.strip()
+                branch = (
+                    current
+                    if branch_result.returncode == 0 and current and current != "HEAD"
+                    else "main"
+                )
+            branch = str(branch)
 
             metadata = {
                 "committed": True,
@@ -921,62 +1001,53 @@ class PushToGitHubStep(WorkflowStep):
             }
 
             # Check if remote exists
-            remote_result = subprocess.run(
-                f"git remote get-url {remote}",
-                shell=True,
-                capture_output=True,
-                text=True,
-                cwd=repo_path,
+            remote_result = await _run(
+                ["git", "remote", "get-url", remote], cwd=repo_path
             )
 
             if remote_result.returncode != 0:
                 # Try to set up remote from repo_name
                 repo_name = context.get("repo_name")
-                if repo_name:
-                    # Check for GitHub MCP clone URL
-                    clone_url = context.get("github_clone_url")
-                    if clone_url:
-                        subprocess.run(
-                            f"git remote add {remote} {clone_url}",
-                            shell=True,
-                            capture_output=True,
-                            text=True,
-                            cwd=repo_path,
-                        )
-                    else:
+                clone_url = context.get("github_clone_url")
+                if repo_name and clone_url and not _is_option_like(clone_url):
+                    add_remote = await _run(
+                        ["git", "remote", "add", remote, str(clone_url)],
+                        cwd=repo_path,
+                    )
+                    if add_remote.returncode != 0:
                         return WorkflowStepResult(
                             step_name=self.name,
-                            status=StepStatus.COMPLETED,
-                            output=f"Committed {commit_hash} locally. No remote configured - add a remote to push.",
+                            status=StepStatus.FAILED,
+                            error=(
+                                f"Committed {commit_hash} locally, but failed to add "
+                                f"remote '{remote}': {add_remote.stderr.strip()}"
+                            ),
                             metadata=metadata,
                         )
-
-            # Push
-            push_result = subprocess.run(
-                f"git push {remote} {branch}",
-                shell=True,
-                capture_output=True,
-                text=True,
-                cwd=repo_path,
-                timeout=60,
-            )
-
-            if push_result.returncode != 0:
-                # Try push with -u for first push
-                push_result = subprocess.run(
-                    f"git push -u {remote} {branch}",
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    cwd=repo_path,
-                    timeout=60,
-                )
-
-                if push_result.returncode != 0:
+                else:
                     return WorkflowStepResult(
                         step_name=self.name,
                         status=StepStatus.COMPLETED,
-                        output=f"Committed {commit_hash} locally. Push failed: {push_result.stderr[:200]}",
+                        output=f"Committed {commit_hash} locally. No remote configured - add a remote to push.",
+                        metadata=metadata,
+                    )
+
+            # Push
+            push_result = await _run(["git", "push", remote, branch], cwd=repo_path)
+
+            if push_result.returncode != 0:
+                # Try push with -u for first push
+                push_result = await _run(
+                    ["git", "push", "-u", remote, branch], cwd=repo_path
+                )
+
+                if push_result.returncode != 0:
+                    metadata["pushed"] = False
+                    return WorkflowStepResult(
+                        step_name=self.name,
+                        status=StepStatus.FAILED,
+                        output=f"Committed {commit_hash} locally.",
+                        error=f"Push to {remote}/{branch} failed: {push_result.stderr[:500]}",
                         metadata=metadata,
                     )
 
@@ -994,11 +1065,11 @@ class PushToGitHubStep(WorkflowStep):
                 metadata=metadata,
             )
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             return WorkflowStepResult(
                 step_name=self.name,
                 status=StepStatus.FAILED,
-                error="Push timed out",
+                error=f"Git command timed out: {' '.join(map(str, e.cmd)) if isinstance(e.cmd, list) else e.cmd}",
             )
         except Exception as e:
             logger.exception(f"[PushToGitHubStep] Error: {e}")
@@ -1026,10 +1097,9 @@ class InstallDepsStep(WorkflowStep):
         return errors
 
     async def execute(self, context: dict[str, Any]) -> WorkflowStepResult:
-        import subprocess
         import os
 
-        project_path = context["project_path"]
+        project_path = _resolve_project_path(context)
         package_manager = context.get(
             "package_manager"
         )  # npm, pip, yarn, pnpm, composer, etc.
@@ -1083,14 +1153,24 @@ class InstallDepsStep(WorkflowStep):
                     output=f"Unsupported package manager: {package_manager}",
                 )
 
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                cwd=project_path,
-                timeout=300,
-            )
+            # pyproject.toml/setup.py-only projects have no requirements.txt
+            if package_manager == "pip" and not os.path.exists(
+                os.path.join(project_path, "requirements.txt")
+            ):
+                if os.path.exists(
+                    os.path.join(project_path, "pyproject.toml")
+                ) or os.path.exists(os.path.join(project_path, "setup.py")):
+                    cmd = "pip install -e ."
+                else:
+                    return WorkflowStepResult(
+                        step_name=self.name,
+                        status=StepStatus.SKIPPED,
+                        output="pip selected but no requirements.txt, pyproject.toml or setup.py found",
+                    )
+
+            # Fixed install commands (no interpolated values); shell=True so
+            # .cmd shims (npm, yarn, ...) resolve on Windows
+            result = await _run(cmd, cwd=project_path, timeout=300, shell=True)
 
             if result.returncode != 0:
                 return WorkflowStepResult(
@@ -1144,7 +1224,7 @@ class EnvSetupStep(WorkflowStep):
     async def execute(self, context: dict[str, Any]) -> WorkflowStepResult:
         import os
 
-        project_path = context["project_path"]
+        project_path = _resolve_project_path(context)
         env_vars = context.get("env_vars", {})  # Dict of env var key-value pairs
         env_template = context.get("env_template", "")  # Full .env content
         copy_from = context.get("copy_from", ".env.example")  # File to copy from
@@ -1156,23 +1236,33 @@ class EnvSetupStep(WorkflowStep):
 
             # If env_vars dict provided, write/update them
             if env_vars:
-                existing = {}
+                pending = {str(k): v for k, v in env_vars.items()}
+                new_lines: list[str] = []
+
+                # Update matching keys in place; keep comments and unrelated
+                # lines exactly as they were
                 if os.path.exists(env_path):
-                    with open(env_path, "r") as f:
-                        for line in f:
-                            line = line.strip()
-                            if line and not line.startswith("#") and "=" in line:
-                                key, _, value = line.partition("=")
-                                existing[key.strip()] = value.strip()
+                    with open(env_path, "r", encoding="utf-8") as f:
+                        for raw in f.read().splitlines():
+                            key = _parse_env_key(raw)
+                            if key is not None and key in pending:
+                                prefix = (
+                                    "export " if raw.lstrip().startswith("export ") else ""
+                                )
+                                new_lines.append(
+                                    prefix + _format_env_line(key, pending.pop(key))
+                                )
+                                updated_vars.append(key)
+                            else:
+                                new_lines.append(raw)
 
-                # Merge with new vars
-                existing.update(env_vars)
+                # Append keys that were not already present
+                for key, value in pending.items():
+                    new_lines.append(_format_env_line(key, value))
+                    updated_vars.append(key)
 
-                # Write .env file
-                with open(env_path, "w") as f:
-                    for key, value in existing.items():
-                        f.write(f'{key}="{value}"\n')
-                        updated_vars.append(key)
+                with open(env_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(new_lines) + "\n")
 
                 created = True
 
@@ -1206,6 +1296,9 @@ class EnvSetupStep(WorkflowStep):
                         status=StepStatus.SKIPPED,
                         output="No env_vars, env_template, or .env.example found",
                     )
+
+            # Make sure secrets in .env are never committed
+            _ensure_gitignored(project_path, ".env")
 
             vars_str = f" with vars: {', '.join(updated_vars)}" if updated_vars else ""
             return WorkflowStepResult(
@@ -1244,10 +1337,9 @@ class BuildStep(WorkflowStep):
         return errors
 
     async def execute(self, context: dict[str, Any]) -> WorkflowStepResult:
-        import subprocess
         import os
 
-        project_path = context["project_path"]
+        project_path = _resolve_project_path(context)
         build_command = context.get("build_command")  # Custom build command
         build_output_dir = context.get("build_output_dir")  # Expected output dir
 
@@ -1290,14 +1382,17 @@ class BuildStep(WorkflowStep):
                         output="No build command detected or needed",
                     )
 
-            result = subprocess.run(
-                build_command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                cwd=project_path,
-                timeout=300,
-            )
+            if not build_command:
+                # e.g. package.json without a "build"/"compile" script
+                return WorkflowStepResult(
+                    step_name=self.name,
+                    status=StepStatus.SKIPPED,
+                    output="No build command detected or needed",
+                )
+
+            # build_command is a user-supplied shell command (approved via the
+            # workflow tool's confirmation); detected commands are constants.
+            result = await _run(build_command, cwd=project_path, timeout=300, shell=True)
 
             if result.returncode != 0:
                 return WorkflowStepResult(
@@ -1366,7 +1461,7 @@ class GenerateReadmeStep(WorkflowStep):
     async def execute(self, context: dict[str, Any]) -> WorkflowStepResult:
         import os
 
-        project_path = context["project_path"]
+        project_path = _resolve_project_path(context)
         repo_name = context.get(
             "repo_name", os.path.basename(os.path.abspath(project_path))
         )

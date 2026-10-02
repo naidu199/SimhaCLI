@@ -23,9 +23,14 @@ class MCPTool(Tool):
     @property
     def schema(self) -> dict[str, Any]:
         input_schema = self._tool_info.input_schema or {}
+        properties = input_schema.get("properties", {})
+        # Inline $ref pointers since $defs is not forwarded to the model
+        defs = input_schema.get("$defs", input_schema.get("definitions", {}))
+        if defs:
+            properties = Tool._resolve_refs(properties, defs)
         return {
             "type": "object",
-            "properties": input_schema.get("properties", {}),
+            "properties": properties,
             "required": input_schema.get("required", []),
         }
 

@@ -1,3 +1,5 @@
+import asyncio
+
 from tools.base import Tool, ToolInvocation, ToolKind, ToolResult
 from pydantic import BaseModel, Field
 from ddgs import DDGS
@@ -35,17 +37,20 @@ class WebSearchTool(Tool):
         params = WebSearchParams(**invocation.params)
 
         try:
-            # Use DuckDuckGo for search
-            results = DDGS().text(
-                params.query,
-                region=params.region,
-                safesearch="off",
-                timelimit=params.timelimit,
-                max_results=params.max_results,
-            )
+            # Use DuckDuckGo for search. DDGS is synchronous network I/O, so run it
+            # in a worker thread to avoid blocking the event loop.
+            def _search() -> list:
+                results = DDGS().text(
+                    params.query,
+                    region=params.region,
+                    safesearch="off",
+                    timelimit=params.timelimit,
+                    max_results=params.max_results,
+                )
+                # Convert generator to list
+                return list(results or [])[: params.max_results]
 
-            # Convert generator to list
-            results = list(results)[: params.max_results]
+            results = await asyncio.to_thread(_search)
 
         except Exception as e:
             return ToolResult.error_result(

@@ -9,12 +9,35 @@ class ChatCompressor:
     def __init__(self, client: LLMClient):
         self.client = client
 
+    @staticmethod
+    def _content_to_text(content: Any) -> str:
+        """Flatten message content to plain text.
+
+        Multimodal (list) content keeps only text parts; image parts become
+        "[image]" so base64 data never ends up in the compression prompt.
+        """
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text":
+                    parts.append(part.get("text", "") or "")
+                elif part.get("type") in ("image_url", "image", "input_image"):
+                    parts.append("[image]")
+            return "\n".join(p for p in parts if p)
+        return str(content)
+
     def _format_history_for_compaction(self, messages: list[dict[str, Any]]) -> str:
         output = ["Here is the conversation that needs to be continue: \n"]
 
         for msg in messages:
             role = msg.get("role", "")
-            content = msg.get("content", "")
+            content = self._content_to_text(msg.get("content"))
 
             if role == "system":
                 continue
@@ -39,7 +62,7 @@ class ChatCompressor:
                     for tc in msg["tool_calls"]:
                         func = tc.get("function", {})
                         name = func.get("name", "unknown")
-                        args = func.get("arguments", "{}")
+                        args = func.get("arguments") or "{}"
 
                         if len(args) > 500:
                             args = args[:500]

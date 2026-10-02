@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import os
 from pathlib import Path
 import signal
@@ -105,8 +106,9 @@ class ShellTool(Tool):
     ) -> ToolConfirmation | None:
         params = ShellParams(**invocation.params)
 
+        command = params.command.lower().strip()
         for blocked in BLOCKED_COMMANDS:
-            if blocked in params.command:
+            if blocked in command:
                 return ToolConfirmation(
                     tool_name=self.name,
                     params=invocation.params,
@@ -165,12 +167,13 @@ class ShellTool(Tool):
                 timeout=params.timeout,
             )
         except asyncio.TimeoutError:
-            if sys.platform != "win32":
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            else:
-                process.kill()
-            await process.wait()
+            await self._kill_process(process)
             return ToolResult.error_result(f"Command timed out after {params.timeout}s")
+        except BaseException:
+            # Cancellation (e.g. Ctrl+C) or unexpected error: don't leak the
+            # child process group.
+            await self._kill_process(process)
+            raise
 
         stdout = stdout_data.decode("utf-8", errors="replace")
         stderr = stderr_data.decode("utf-8", errors="replace")
@@ -196,6 +199,19 @@ class ShellTool(Tool):
             error=stderr if exit_code != 0 else None,
             exit_code=exit_code,
         )
+
+    async def _kill_process(self, process: asyncio.subprocess.Process) -> None:
+        if process.returncode is not None:
+            return
+
+        if sys.platform != "win32":
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        else:
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+
+        await process.wait()
 
     def _build_environment(self) -> dict[str, str]:
         env = os.environ.copy()

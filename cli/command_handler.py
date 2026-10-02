@@ -24,9 +24,11 @@ class CommandHandler:
         Returns:
             CommandResult if a command was found, or False if exit requested
         """
-        cmd = command.lower().strip()
-        parts = cmd.split(maxsplit=1)
-        cmd_name = parts[0]
+        parts = command.strip().split(maxsplit=1)
+        if not parts:
+            parts = [""]
+        # Only the command name is case-insensitive; arguments keep their case
+        cmd_name = parts[0].lower()
         cmd_args = parts[1] if len(parts) > 1 else ""
 
         result = await self.registry.execute(cmd_name, cmd_args, context)

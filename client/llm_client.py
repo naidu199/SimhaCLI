@@ -1,6 +1,14 @@
 import asyncio
+import uuid
 from typing import Any, AsyncGenerator
-from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
+from openai import (
+    APIConnectionError,
+    APIError,
+    APIStatusError,
+    APITimeoutError,
+    AsyncOpenAI,
+    RateLimitError,
+)
 
 from config.config import Config
 from .response import (
@@ -11,6 +19,11 @@ from .response import (
     ToolCall,
     ToolCallDelta,
 )
+
+
+def _generate_call_id() -> str:
+    """Fallback id for providers that omit tool call ids (tool results must reference one)."""
+    return f"call_{uuid.uuid4().hex[:24]}"
 
 
 class LLMClient:
@@ -141,42 +154,31 @@ class LLMClient:
             kwargs["tools"] = self._build_tools(tools)
             kwargs["tool_choice"] = "auto"
 
-        # Handle rate limit with retries
+        # Handle transient errors with retries
         for attempt in range(self._max_rate_limit_retries + 1):
+            # Once any event has been yielded the caller has already consumed
+            # partial output — retrying would duplicate it, so we must not.
+            yielded = False
             try:
                 # Make the API call first to catch exceptions before streaming
                 response = await client.chat.completions.create(**kwargs)
 
                 if stream:
-                    async for event in self._process_stream_response(response):
-                        yield event
+                    events = self._process_stream_response(response)
                 else:
-                    async for event in self._process_normal_response(response):
-                        yield event
+                    events = self._process_normal_response(response)
+                async for event in events:
+                    yielded = True
+                    yield event
                 return
-            except RateLimitError as e:
-                if attempt < self._max_rate_limit_retries:
-
-                    await asyncio.sleep(2**attempt)  # Exponential backoff
-                    continue
-                else:
-                    yield StreamEvent(
-                        type=StreamEventType.ERROR,
-                        error=f"Rate limit exceeded after {self._max_rate_limit_retries} retries: {str(e)}",
-                    )
-                    return
-            except APIConnectionError as e:
-                if attempt < self._max_rate_limit_retries:
-
-                    await asyncio.sleep(2**attempt)  # Exponential backoff
-                    continue
-                else:
-                    yield StreamEvent(
-                        type=StreamEventType.ERROR,
-                        error=f"API connection error after {self._max_rate_limit_retries} retries: {str(e)}",
-                    )
-                    return
             except APIError as e:
+                if yielded:
+                    yield StreamEvent(
+                        type=StreamEventType.ERROR,
+                        error=f"API error during streaming (response was interrupted): {str(e)}",
+                    )
+                    return
+
                 # Check for specific error types and provide helpful messages
                 error_str = str(e)
 
@@ -202,42 +204,65 @@ class LLMClient:
                     )
                     return
 
-                # Upstream/model endpoint errors (temporary issues)
-                if (
-                    "upstream" in error_str.lower()
-                    or "model endpoint" in error_str.lower()
-                ):
-                    if attempt < self._max_rate_limit_retries:
-                        await asyncio.sleep(2**attempt)
-                        continue
-                    else:
-                        yield StreamEvent(
-                            type=StreamEventType.ERROR,
-                            error=(
-                                f"API error after {self._max_rate_limit_retries} retries: {str(e)}\n\n"
-                                "💡 This model appears to be temporarily unavailable.\n"
-                                "   Try one of these solutions:\n"
-                                "   • Wait a moment and try again\n"
-                                "   • Switch to a different model using: /model <model-name>\n"
-                                "   • Recommended alternatives:\n"
-                                "       - openrouter/free (access to multiple free models)"
-                                "       - openrouter/hunter-alpha (specialized in code generation Recommended for coding tasks)"
-                                "       - openrouter/healer-alpha (specialized in debugging and fixing code issues Recommended for debugging tasks)"
-                                "If still facing issues after enabling this setting, terminate the agent and try again.\n"
-                            ),
-                        )
-                        return
+                if not self._is_retryable_error(e):
+                    yield StreamEvent(
+                        type=StreamEventType.ERROR,
+                        error=f"API error: {str(e)}",
+                    )
+                    return
 
-                # Generic API errors with retry logic
                 if attempt < self._max_rate_limit_retries:
                     await asyncio.sleep(2**attempt)  # Exponential backoff
                     continue
-                else:
-                    yield StreamEvent(
-                        type=StreamEventType.ERROR,
-                        error=f"API error after {self._max_rate_limit_retries} retries: {str(e)}",
+
+                retries = self._max_rate_limit_retries
+                if isinstance(e, RateLimitError):
+                    error = f"Rate limit exceeded after {retries} retries: {str(e)}"
+                elif isinstance(e, APIConnectionError):
+                    error = f"API connection error after {retries} retries: {str(e)}"
+                elif (
+                    "upstream" in error_str.lower()
+                    or "model endpoint" in error_str.lower()
+                ):
+                    # Upstream/model endpoint errors (temporary issues)
+                    error = (
+                        f"API error after {retries} retries: {str(e)}\n\n"
+                        "💡 This model appears to be temporarily unavailable.\n"
+                        "   Try one of these solutions:\n"
+                        "   • Wait a moment and try again\n"
+                        "   • Switch to a different model using: /model <model-name>\n"
+                        "   • Recommended alternatives:\n"
+                        "       - openrouter/free (access to multiple free models)"
+                        "       - openrouter/hunter-alpha (specialized in code generation Recommended for coding tasks)"
+                        "       - openrouter/healer-alpha (specialized in debugging and fixing code issues Recommended for debugging tasks)"
+                        "If still facing issues after enabling this setting, terminate the agent and try again.\n"
                     )
-                    return
+                else:
+                    error = f"API error after {retries} retries: {str(e)}"
+                yield StreamEvent(type=StreamEventType.ERROR, error=error)
+                return
+
+    @staticmethod
+    def _is_retryable_error(e: APIError) -> bool:
+        """Only transient failures are retried (not 400/401/403/404 etc.)."""
+        # RateLimitError is a 429 APIStatusError; APITimeoutError subclasses
+        # APIConnectionError.
+        if isinstance(e, (RateLimitError, APIConnectionError, APITimeoutError)):
+            return True
+        if isinstance(e, APIStatusError):
+            return e.status_code >= 500
+        # Plain APIError (no HTTP status, e.g. an error event in the stream):
+        # retry when the provider reports a transient code (OpenRouter puts
+        # 429/5xx in the body) or a known upstream/model endpoint failure.
+        body = getattr(e, "body", None)
+        if isinstance(body, dict):
+            code = body.get("code")
+            if isinstance(code, str) and code.isdigit():
+                code = int(code)
+            if isinstance(code, int) and (code == 429 or code >= 500):
+                return True
+        error_str = str(e).lower()
+        return "upstream" in error_str or "model endpoint" in error_str
 
     # Private method to process streaming responses (response already created)
     async def _process_stream_response(
@@ -249,13 +274,11 @@ class LLMClient:
         async for chunk in response:
             if hasattr(chunk, "usage") and chunk.usage:
                 usage = TokenUsage(
-                    prompt_tokens=chunk.usage.prompt_tokens,
-                    completion_tokens=chunk.usage.completion_tokens,
-                    total_tokens=chunk.usage.total_tokens,
+                    prompt_tokens=chunk.usage.prompt_tokens or 0,
+                    completion_tokens=chunk.usage.completion_tokens or 0,
+                    total_tokens=chunk.usage.total_tokens or 0,
                     cached_tokens=(
-                        chunk.usage.prompt_tokens_details.cached_tokens
-                        if chunk.usage.prompt_tokens_details
-                        else 0
+                        getattr(chunk.usage.prompt_tokens_details, "cached_tokens", 0) or 0
                     ),
                 )
             if not chunk.choices:
@@ -300,7 +323,7 @@ class LLMClient:
                     idx = tool_call.index
                     if idx not in tool_calls:
                         tool_calls[idx] = {
-                            "id": tool_call.id or "",
+                            "id": tool_call.id or _generate_call_id(),
                             "name": "",
                             "arguments": "",
                         }
@@ -340,7 +363,7 @@ class LLMClient:
             yield StreamEvent(
                 type=StreamEventType.TOOL_CALL_COMPLETE,
                 tool_call=ToolCall(
-                    call_id=tool_call["id"],
+                    call_id=tool_call["id"] or _generate_call_id(),
                     name=tool_call["name"],
                     arguments=tool_call["arguments"],
                 ),
@@ -370,7 +393,7 @@ class LLMClient:
         if message.tool_calls:
             for tool_call in message.tool_calls:
                 tc = ToolCall(
-                    call_id=tool_call.id or "",
+                    call_id=tool_call.id or _generate_call_id(),
                     name=tool_call.function.name if tool_call.function else "",
                     arguments=(
                         tool_call.function.arguments if tool_call.function else ""
@@ -384,13 +407,11 @@ class LLMClient:
         usage = None
         if response.usage:
             usage = TokenUsage(
-                prompt_tokens=response.usage.prompt_tokens,
-                completion_tokens=response.usage.completion_tokens,
-                total_tokens=response.usage.total_tokens,
+                prompt_tokens=response.usage.prompt_tokens or 0,
+                completion_tokens=response.usage.completion_tokens or 0,
+                total_tokens=response.usage.total_tokens or 0,
                 cached_tokens=(
-                    response.usage.prompt_tokens_details.cached_tokens
-                    if response.usage.prompt_tokens_details
-                    else 0
+                    getattr(response.usage.prompt_tokens_details, "cached_tokens", 0) or 0
                 ),
             )
 

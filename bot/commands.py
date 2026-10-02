@@ -195,9 +195,15 @@ def bot_setup():
         set_config_value("telegram", "allowed_user_ids", allowed_ids)
     except Exception as e:
         try:
-            cfg.telegram.bot_token = token
-            cfg.telegram.allowed_user_ids = allowed_ids
-            save_config(cfg)
+            # Reassign so the field counts as "set" (save_config uses exclude_unset)
+            cfg.telegram = cfg.telegram.model_copy(
+                update={"bot_token": token, "allowed_user_ids": allowed_ids}
+            )
+            # Never pin project-specific/runtime values into the global config
+            # (cwd is always excluded by save_config)
+            save_config(
+                cfg, exclude={"developer_instructions", "user_instructions"}
+            )
         except Exception as save_error:
             console.print(
                 f"[red]Failed to save config:[/red] {e} [dim](fallback failed: {save_error})[/dim]"

@@ -25,159 +25,169 @@ class ApprovalContext:
     is_dangerous: bool = False
 
 
+# Prefix matching the start of a (sub)command: beginning of the string, a
+# shell separator, or a wrapper such as sudo. Used for commands whose names
+# are common words (e.g. "shutdown", "halt") so that mentioning them as an
+# argument (``grep -rn shutdown .``) is not treated as running them.
+_CMD_START = r"(?:^|[;&|`(\n]|\$\(|\bsudo\s+|\bexec\s+|\bxargs\s+)\s*(?:\S*/)?"
+
 DANGEROUS_PATTERNS = [
-    # File system destruction
-    r"rm\s+(-rf?|--recursive)\s+[/~]",
-    r"rm\s+-rf?\s+\*",
-    r"rmdir\s+[/~]",
-    r"shred\s+",
-    r"srm\s+",
-    r"find\s+.*-delete",
-    r"find\s+.*-exec\s+rm",
+    # File system destruction (recursive rm on root/home/glob, any flag order)
+    r"\brm\s+(?:-\S+\s+)*(?:-[a-z]*r[a-z]*|--recursive)\s+(?:-\S+\s+)*(?:[/~*]|\$\{?HOME\b)",
+    r"\brmdir\s+[/~]",
+    r"\bshred\s+",
+    r"\bsrm\s+",
+    r"\bfind\s+.*-delete\b",
+    r"\bfind\s+.*-exec\s+rm\b",
     # Disk operations
-    r"dd\s+if=",
-    r"mkfs",
-    r"fdisk",
-    r"parted",
-    r"gdisk",
-    r"wipefs",
-    r"blkdiscard",
+    r"\bdd\s+if=",
+    r"\bmkfs\b",
+    r"\bfdisk\b",
+    r"\bparted\b",
+    r"\bgdisk\b",
+    r"\bwipefs\b",
+    r"\bblkdiscard\b",
     # System control
-    r"shutdown",
-    r"reboot",
-    r"halt",
-    r"poweroff",
-    r"init\s+[06]",
-    r"systemctl\s+(halt|poweroff|reboot|kexec)",
-    r"telinit\s+[06]",
+    _CMD_START + r"shutdown\b",
+    _CMD_START + r"reboot\b",
+    _CMD_START + r"halt\b",
+    _CMD_START + r"poweroff\b",
+    _CMD_START + r"init\s+[06]\b",
+    r"\bsystemctl\s+(halt|poweroff|reboot|kexec)\b",
+    r"\btelinit\s+[06]\b",
     # Permission changes on root
-    r"chmod\s+(-R\s+)?777\s+[/~]",
-    r"chown\s+-R\s+.*\s+[/~]",
-    r"chmod\s+(-R\s+)?[0-7]*[2367]\s+/",
-    r"chattr\s+.*\s+/",
+    r"\bchmod\s+(-R\s+)?777\s+[/~]",
+    r"\bchown\s+-R\s+.*\s+[/~]",
+    r"\bchmod\s+(-R\s+)?[0-7]*[2367]\s+/",
+    r"\bchattr\s+.*\s+/",
     # Network exposure
-    r"nc\s+-l",
-    r"netcat\s+-l",
-    r"ncat\s+-l",
-    r"socat\s+.*LISTEN",
-    r"python.*-m\s+http\.server",
-    r"python.*SimpleHTTPServer",
-    r"php\s+-S\s+0\.0\.0\.0",
+    r"\bnc\s+-l",
+    r"\bnetcat\s+-l",
+    r"\bncat\s+-l",
+    r"\bsocat\s+.*LISTEN",
+    r"\bpython[0-9.]*\s.*-m\s+http\.server",
+    r"\bpython[0-9.]*\s.*SimpleHTTPServer",
+    r"\bphp\s+-S\s+0\.0\.0\.0",
     # Code execution from network
-    r"curl\s+.*\|\s*(bash|sh|python|ruby|perl|php)",
-    r"wget\s+.*\|\s*(bash|sh|python|ruby|perl|php)",
-    r"fetch\s+.*\|\s*(bash|sh)",
+    r"\bcurl\s+.*\|\s*(sudo\s+)?(bash|sh|python[0-9.]*|ruby|perl|php)\b",
+    r"\bwget\s+.*\|\s*(sudo\s+)?(bash|sh|python[0-9.]*|ruby|perl|php)\b",
+    r"\bfetch\s+.*\|\s*(bash|sh)\b",
     r"\|\s*sh\s*$",
     r"\|\s*bash\s*$",
     # Fork bomb and resource exhaustion
     r":\(\)\s*\{\s*:\|:&\s*\}\s*;",
-    r"while\s+true.*do",
-    r"yes\s+>\s+/dev/",
-    r"cat\s+/dev/zero\s*>",
+    r"\bwhile\s+true\b.*\bdo\b",
+    r"\byes\s+>\s+/dev/",
+    r"\bcat\s+/dev/zero\s*>",
     # Kernel/System modification
-    r"insmod",
-    r"rmmod",
-    r"modprobe",
-    r"sysctl\s+-w",
-    r"echo\s+.*>\s*/proc/",
-    r"echo\s+.*>\s*/sys/",
+    r"\binsmod\b",
+    r"\brmmod\b",
+    r"\bmodprobe\b",
+    r"\bsysctl\s+-w\b",
+    r"\becho\s+.*>\s*/proc/",
+    r"\becho\s+.*>\s*/sys/",
     # Package manager dangerous operations
-    r"(apt|apt-get|yum|dnf)\s+remove.*--purge",
-    r"(apt|apt-get|yum|dnf)\s+autoremove",
-    r"pip\s+uninstall.*-y",
-    r"npm\s+(uninstall|remove).*-g",
+    r"\b(apt|apt-get|yum|dnf)\s+remove\b.*--purge",
+    r"\b(apt|apt-get|yum|dnf)\s+autoremove\b",
+    r"\bpip[0-9.]*\s+uninstall\b.*\s-y\b",
+    r"\bnpm\s+(uninstall|remove)\b.*\s(-g|--global)\b",
     # Cron/scheduled tasks manipulation
-    r"crontab\s+-r",
-    r"at\s+.*rm\s+",
+    r"\bcrontab\s+-r\b",
+    _CMD_START + r"at\s+.*\brm\s+",
     # Process killing (bulk)
-    r"killall\s+-9",
-    r"pkill\s+-9\s+.*",
-    r"kill\s+-9\s+-1",
+    r"\bkillall\s+-9\b",
+    r"\bpkill\s+-9\s+",
+    r"\bkill\s+-9\s+-1\b",
     # Potentially malicious scripts
-    r"eval\s+.*\$\(",
-    r"exec\s+.*\$\(",
-    r"base64\s+-d.*\|\s*(sh|bash)",
+    r"\beval\s+.*\$\(",
+    r"\bexec\s+.*\$\(",
+    r"\bbase64\s+(-d|--decode)\b.*\|\s*(sh|bash)\b",
     # Database operations
-    r"(mysql|psql|mongo).*DROP\s+DATABASE",
-    r"(mysql|psql|mongo).*DROP\s+TABLE",
-    r"redis-cli.*FLUSHALL",
-    r"redis-cli.*FLUSHDB",
+    r"\b(mysql|psql|mongo|mongosh)\b.*\bDROP\s+DATABASE\b",
+    r"\b(mysql|psql|mongo|mongosh)\b.*\bDROP\s+TABLE\b",
+    r"\bredis-cli\b.*\bFLUSHALL\b",
+    r"\bredis-cli\b.*\bFLUSHDB\b",
     # Container/VM operations
-    r"docker\s+(rm|rmi).*-f",
-    r"docker\s+system\s+prune.*-a",
-    r"kubectl\s+delete",
-    r"(virsh|vboxmanage)\s+destroy",
+    r"\bdocker\s+(rm|rmi)\b.*\s(-[a-z]*f[a-z]*|--force)\b",
+    r"\bdocker\s+system\s+prune\b.*\s-[a-z]*a",
+    r"\bkubectl\s+delete\b",
+    r"\b(virsh|vboxmanage)\s+destroy\b",
     # Git destructive operations
-    r"git\s+push.*--force",
-    r"git\s+reset.*--hard\s+HEAD~",
-    r"git\s+clean.*-fdx",
+    r"\bgit\s+push\b.*--force",
+    r"\bgit\s+reset\b.*--hard\s+HEAD~",
+    r"\bgit\s+clean\b.*-fdx",
     # Compression bombs
-    r"tar\s+.*zxf.*-C\s+/",
-    r"unzip.*-d\s+/",
+    r"\btar\s+.*zxf.*-C\s+/",
+    r"\bunzip\b.*-d\s+/",
     # History/log manipulation
-    r"history\s+-c",
+    r"\bhistory\s+-c\b",
     r">\s*/var/log/",
-    r"rm\s+.*\.log$",
-    r"truncate.*-s\s+0",
+    r"\brm\s+.*\.log$",
+    r"\btruncate\b.*-s\s+0\b",
     # Sudo abuse
-    r"sudo\s+su\s+-",
-    r"sudo\s+.*passwd",
-    r"echo\s+.*\|\s*sudo\s+tee",
+    r"\bsudo\s+su\s+-",
+    r"\bsudo\s+.*\bpasswd\b",
+    r"\becho\s+.*\|\s*sudo\s+tee\b",
 ]
 
-# Patterns for safe commands (can be auto-approved)
+# Shell control/redirection metacharacters. A command containing any of these
+# can chain, redirect or substitute arbitrary commands, so it is never "safe".
+_SHELL_METACHARS = re.compile(r"[;&|<>`\n\r]|\$\(")
+
+# Patterns for safe commands (can be auto-approved). Only genuinely read-only
+# commands belong here; anything that can write files, execute code or
+# mutate system state must go through confirmation.
 SAFE_PATTERNS = [
     # Information commands
     r"^(ls|dir|pwd|cd|echo|cat|head|tail|less|more|wc)(\s|$)",
-    r"^(find|locate|which|whereis|file|stat|du|df)(\s|$)",
+    r"^(locate|which|whereis|file|stat|du|df)(\s|$)",
     r"^(tree|exa|bat)(\s|$)",
     # Development tools (read-only)
-    r"^git\s+(status|log|diff|show|branch|remote|tag|blame|shortlog)(\s|$)",
+    r"^git\s+(status|log|diff|show|blame|shortlog)(\s|$)",
+    r"^git\s+(branch|tag|remote)(\s+(-a|-r|-v|-vv|-l|--all|--list|--verbose))*\s*$",
     r"^(npm|yarn|pnpm)\s+(list|ls|outdated|view|info|search)(\s|$)",
-    r"^pip\s+(list|show|freeze|search)(\s|$)",
-    r"^cargo\s+(tree|search|check)(\s|$)",
+    r"^pip[0-9.]*\s+(list|show|freeze|search)(\s|$)",
+    r"^cargo\s+(tree|search)(\s|$)",
     r"^gem\s+(list|search|info)(\s|$)",
     r"^go\s+(list|doc|version)(\s|$)",
     r"^composer\s+(show|search|outdated)(\s|$)",
-    # Text processing (usually safe)
-    r"^(grep|egrep|fgrep|awk|sed|cut|sort|uniq|tr|diff|comm|paste|join)(\s|$)",
-    r"^(jq|yq|xmllint)(\s|$)",
+    # Text processing (read-only; no in-place editors or output-file options)
+    r"^(grep|egrep|fgrep|rg|cut|tr|diff|comm|paste|join)(\s|$)",
+    r"^jq(\s|$)",
     # System info
     r"^(date|cal|uptime|whoami|id|groups|hostname|uname|arch)(\s|$)",
     r"^(env|printenv|set)$",
-    r"^(locale|timedatectl)(\s|$)",
+    r"^printenv\s+\w+$",
+    r"^locale(\s|$)",
+    r"^timedatectl(\s+status)?$",
     # Process info (read-only)
     r"^(ps|top|htop|btop|pgrep|pstree|lsof)(\s|$)",
     r"^(free|vmstat|iostat|mpstat|sar)(\s|$)",
     # Network info (read-only)
-    r"^(ip\s+(addr|link|route|neigh)|ifconfig)(\s|$)",
+    r"^ip\s+(addr|address|link|route|neigh)(\s+show(\s+\S+)?)?$",
+    r"^ifconfig(\s+-a)?$",
     r"^(netstat|ss|ping|traceroute|nslookup|dig|host)(\s|$)",
-    r"^(curl|wget)\s+.*(-I|--head|\-\-spider)(\s|$)",
     # Disk/filesystem info
-    r"^(lsblk|blkid|findmnt|mount)(\s|$)",
+    r"^(lsblk|blkid|findmnt)(\s|$)",
     r"^df\s+-h",
     r"^du\s+-[sh]",
-    # Archive listing (safe extraction patterns)
-    r"^(tar|unzip|7z)\s+.*(-t|--list|-l)(\s|$)",
+    # Archive listing
+    r"^tar\s+(-?t[a-z]*|--list)(\s|$)",
+    r"^unzip\s+-l(\s|$)",
+    r"^7z\s+l(\s|$)",
     # Package info
     r"^(apt|apt-cache|yum|dnf)\s+(search|show|list|info)(\s|$)",
     r"^dpkg\s+(-l|--list)",
     r"^rpm\s+(-q|--query)",
     # Compiler/build info
-    r"^(gcc|g\+\+|clang|rustc|javac|python|node)\s+(--version|-v)$",
-    r"^make\s+-n",
+    r"^(gcc|g\+\+|clang|rustc|javac|python[0-9.]*|node)\s+(--version|-v|-V)$",
     # Version control (read-only)
     r"^(svn|hg|bzr)\s+(status|log|diff|info)(\s|$)",
     # Documentation
     r"^(man|info|help|whatis|apropos)(\s|$)",
-    r"^.*--help$",
     # Safe utilities
     r"^(bc|calc|units)(\s|$)",
-    r"^(time|timeout)(\s|$)",
-    r"^(watch|yes|seq|shuf)(\s|$)",
-    # Database read-only
-    r"^(mysql|psql|sqlite3).*SELECT(\s|$)",
-    r"^(mysql|psql|sqlite3).*(SHOW|DESCRIBE|EXPLAIN)(\s|$)",
+    r"^seq(\s|$)",
     # Docker/container info
     r"^docker\s+(ps|images|version|info|inspect)(\s|$)",
     r"^kubectl\s+(get|describe|logs|version)(\s|$)",
@@ -219,6 +229,13 @@ def is_dangerous_command(command: str) -> bool:
 
 
 def is_safe_command(command: str) -> bool:
+    command = command.strip()
+    if _SHELL_METACHARS.search(command):
+        return False
+    # rg --pre <cmd> runs <cmd> on every searched file
+    if re.search(r"(^|\s)--pre(=|\s|$)", command):
+        return False
+
     for pattern in SAFE_PATTERNS:
         if re.search(pattern, command, re.IGNORECASE):
             return True
@@ -252,10 +269,10 @@ class ApprovalManager:
         if is_dangerous_command(command):
             return ApprovalDecision.REJECTED
 
+        safe = is_safe_command(command)
+
         if self.approval_policy == ApprovalPolicy.NEVER:
-            if is_safe_command(command):
-                return ApprovalDecision.APPROVED
-            return ApprovalDecision.REJECTED
+            return ApprovalDecision.APPROVED if safe else ApprovalDecision.REJECTED
 
         if self.approval_policy in {
             ApprovalPolicy.AUTO_APPROVE,
@@ -263,46 +280,44 @@ class ApprovalManager:
         }:
             return ApprovalDecision.APPROVED
 
-        if self.approval_policy == ApprovalPolicy.AUTO_EDIT:
-            if is_safe_command(command):
-                return ApprovalDecision.APPROVED
-            if is_confirm_command(command):
-                return ApprovalDecision.NEEDS_CONFIRMATION
+        if self.approval_policy == ApprovalPolicy.ALWAYS:
             return ApprovalDecision.NEEDS_CONFIRMATION
 
-        # Default policy behavior (likely CONFIRM or similar)
-        if is_safe_command(command):
+        # ON_REQUEST / AUTO_EDIT: auto-approve only known read-only commands
+        if safe:
             return ApprovalDecision.APPROVED
-        if is_confirm_command(command):
-            return ApprovalDecision.NEEDS_CONFIRMATION
-
         return ApprovalDecision.NEEDS_CONFIRMATION
 
     async def check_approval(self, context: ApprovalContext) -> ApprovalDecision:
         if not context.is_mutating:
             return ApprovalDecision.APPROVED
 
+        if self.approval_policy == ApprovalPolicy.YOLO:
+            return ApprovalDecision.APPROVED
+
+        # Commands are fully decided by the command safety assessment
         if context.command:
-            decision = self._assess_command_safety(context.command)
-            if decision != ApprovalDecision.NEEDS_CONFIRMATION:
-                return decision
+            return self._assess_command_safety(context.command)
+
+        if self.approval_policy == ApprovalPolicy.ALWAYS:
+            return ApprovalDecision.NEEDS_CONFIRMATION
+
+        if self.approval_policy == ApprovalPolicy.NEVER:
+            return ApprovalDecision.REJECTED
 
         # Check if any paths are outside the workspace
+        workspace = Path(self.cwd).resolve()
         has_outside_path = False
         for path in context.affected_paths:
-            if not path.is_relative_to(self.cwd):
+            if not Path(path).resolve().is_relative_to(workspace):
                 has_outside_path = True
                 break
 
         # If there are paths outside the workspace, require confirmation
         if has_outside_path:
-            if self.approval_policy == ApprovalPolicy.YOLO:
-                return ApprovalDecision.APPROVED
             return ApprovalDecision.NEEDS_CONFIRMATION
 
         if context.is_dangerous:
-            if self.approval_policy == ApprovalPolicy.YOLO:
-                return ApprovalDecision.APPROVED
             return ApprovalDecision.NEEDS_CONFIRMATION
 
         return ApprovalDecision.APPROVED
@@ -315,4 +330,5 @@ class ApprovalManager:
                 return await result
             return result
 
-        return True
+        # No way to ask the user: deny rather than silently approve
+        return False

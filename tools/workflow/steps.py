@@ -1,5 +1,9 @@
 """Workflow steps for MCP-based operations."""
+import asyncio
 import logging
+import shlex
+import subprocess
+from pathlib import Path
 from typing import Any, Callable
 
 from tools.workflow.engine import WorkflowStep, WorkflowStepResult, StepStatus
@@ -115,25 +119,42 @@ class ShellCommandStep(WorkflowStep):
         if self.command:
             return self.command
         elif self.command_template:
-            return self.command_template.format(**context)
+            # Shell-quote substituted values so context data cannot inject
+            # additional shell syntax
+            quoted = {
+                key: shlex.quote(str(value))
+                for key, value in context.items()
+                if not key.startswith("_")
+            }
+            return self.command_template.format(**quoted)
         else:
             raise ValueError("No command or command_template provided")
 
+    def _resolve_cwd(self, context: dict[str, Any]) -> str:
+        """Resolve project_path against the invocation cwd (not process cwd)."""
+        base = context.get("_cwd")
+        if not base:
+            config = context.get("_config")
+            base = getattr(config, "cwd", None) or Path.cwd()
+        path = Path(str(context.get("project_path") or ".")).expanduser()
+        if not path.is_absolute():
+            path = Path(base) / path
+        return str(path)
+
     async def execute(self, context: dict[str, Any]) -> WorkflowStepResult:
         """Execute the shell command."""
-        import subprocess
-
         try:
             cmd = self._build_command(context)
             logger.info(f"[ShellCommandStep] Running: {cmd}")
 
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 cmd,
                 shell=True,
                 capture_output=True,
                 text=True,
                 timeout=120,
-                cwd=str(context.get("project_path", ".")),
+                cwd=self._resolve_cwd(context),
             )
 
             if result.returncode != 0:

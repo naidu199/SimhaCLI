@@ -18,6 +18,9 @@ class MessageItem:
     tool_calls: list[dict[str, Any]] | None = field(default_factory=list)
     token_count: int | None = None  # depends upon the model tokenizer
     pruned_at: datetime | None = None
+    # True for agent-generated user messages (loop breaker, retry nudges, ...)
+    # as opposed to real user input. Not sent to the API.
+    synthetic: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"role": self.role}
@@ -25,9 +28,12 @@ class MessageItem:
             result["tool_call_id"] = self.tool_call_id
         if self.tool_calls:
             result["tool_calls"] = self.tool_calls
-        # Always include content for tool messages, even if empty
-        if self.content or self.role == "tool":
-            result["content"] = self.content
+        # Always include content — strict providers reject messages without it.
+        # Assistant messages that only carry tool_calls may use null content.
+        if self.role == "assistant" and self.tool_calls and not self.content:
+            result["content"] = None
+        else:
+            result["content"] = self.content if self.content is not None else ""
         return result
 
 
@@ -35,6 +41,7 @@ class ContextManager:
     PRUNE_PROTECT_TOKENS = 20000  # Protect last 20k tokens from pruning
     PRUNE_MINIMUM_TOKENS = 7500  # Prune if >5k tokens can be saved
     COMPRESSION_THRESHOLD = 0.75  # Trigger compression at 75% of context window
+    MISSING_TOOL_RESULT_CONTENT = "Tool call was cancelled or did not complete."
 
     def __init__(
         self,
@@ -44,6 +51,8 @@ class ContextManager:
         git_context_str: str | None = None,
     ) -> None:
         self._git_context_str = git_context_str
+        self._user_memory = user_memory
+        self._tools = tools
         self._system_prompt = get_system_prompt(
             config=config,
             user_memory=user_memory,
@@ -75,7 +84,10 @@ class ContextManager:
     def add_user_message(
         self,
         content: str | list[dict[str, Any]],
+        synthetic: bool = False,
     ) -> None:
+        """Add a user message. Pass synthetic=True for agent-generated nudges
+        (loop breaker, retry prompts) so they don't count as a new user turn."""
         # For multimodal content, estimate tokens from text parts + image parts
         if isinstance(content, list):
             # Multimodal: count text tokens + image tokens
@@ -95,6 +107,7 @@ class ContextManager:
             role="user",
             content=content,
             token_count=token_count,
+            synthetic=synthetic,
         )
         self._messages.append(message)
 
@@ -127,8 +140,49 @@ class ContextManager:
         if self._system_prompt:
             messages.append({"role": "system", "content": self._system_prompt})
 
+        # Safety net: every assistant tool_call id must be answered by a
+        # following tool message, otherwise the API rejects every later
+        # request (400). If a turn was interrupted (cancel, loop stop, error)
+        # before all results were recorded, fill the gaps with a synthetic
+        # result placed right after the existing results for that turn.
+        # Tool messages that don't answer the preceding assistant turn are
+        # dropped for the same reason.
+        pending: list[str] = []  # ids still awaiting a result, in order
+        expected: set[str] = set()  # ids of the current assistant turn
+
+        def flush_pending() -> None:
+            for call_id in pending:
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": self.MISSING_TOOL_RESULT_CONTENT,
+                    }
+                )
+            pending.clear()
+            expected.clear()
+
         for msg in self._messages:
+            if msg.role == "tool":
+                if msg.tool_call_id in expected:
+                    expected.discard(msg.tool_call_id)
+                    if msg.tool_call_id in pending:
+                        pending.remove(msg.tool_call_id)
+                    messages.append(msg.to_dict())
+                # else: orphan tool result with no matching call — skip it
+                continue
+
+            flush_pending()
             messages.append(msg.to_dict())
+
+            if msg.role == "assistant" and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    call_id = tc.get("id") if isinstance(tc, dict) else None
+                    if call_id and call_id not in expected:
+                        expected.add(call_id)
+                        pending.append(call_id)
+
+        flush_pending()
 
         return messages
 
@@ -142,7 +196,9 @@ class ContextManager:
 
         for msg_dict in messages:
             role = msg_dict.get("role")
-            content = msg_dict.get("content", "")
+            content = msg_dict.get("content")
+            if content is None:
+                content = ""
             if role == "system":
                 system_prompt = content
                 continue
@@ -178,7 +234,7 @@ class ContextManager:
                         text_parts.append(part.get("text", ""))
                 total += count_tokens(" ".join(text_parts), self._model_name)
             else:
-                total += count_tokens(msg.content, self._model_name)
+                total += count_tokens(msg.content or "", self._model_name)
 
         return total
 
@@ -201,6 +257,8 @@ class ContextManager:
 
     def replace_with_summary(self, summary: str) -> None:
         self._messages = []
+        # Usage reported for the old (uncompressed) context is now stale
+        self._latest_usage = TokenUsage()
 
         continuation_content = f"""# Context Restoration (Previous Session Compacted)
 
@@ -238,41 +296,53 @@ I'll continue with the REMAINING tasks only, starting from where we left off."""
         self._messages.append(ack_item)
 
     def refresh_system_prompt(
-        self, tools: list[Tool] | None = None, user_memory: str | None = None
+        self,
+        tools: list[Tool] | None = None,
+        user_memory: str | None = None,
+        add_continue_message: bool = False,
     ) -> None:
-        """Refresh the system prompt with updated config (e.g., after model change)."""
+        """Refresh the system prompt with updated config (e.g., after model change).
+
+        ``tools``/``user_memory`` default to the values from construction (or
+        the last refresh) when not given, so user memory isn't silently lost.
+        """
+        if tools is not None:
+            self._tools = tools
+        if user_memory is not None:
+            self._user_memory = user_memory
         self._system_prompt = get_system_prompt(
             config=self._config,
-            user_memory=user_memory,
-            tools=tools,
+            user_memory=self._user_memory,
+            tools=self._tools,
             git_context_str=self._git_context_str,
         )
         # Update model name tracking
         self._model_name = self._config.model.name
 
-        continue_content = (
-            "Continue with the REMAINING work only. Do NOT repeat any completed actions. "
-            "Proceed with the next step as described in the context above."
-        )
-
-        continue_item = MessageItem(
-            role="user",
-            content=continue_content,
-            token_count=count_tokens(continue_content, self._model_name),
-        )
-        self._messages.append(continue_item)
+        if add_continue_message:
+            continue_content = (
+                "Continue with the REMAINING work only. Do NOT repeat any completed actions. "
+                "Proceed with the next step as described in the context above."
+            )
+            self.add_user_message(continue_content, synthetic=True)
 
     def prune_tool_outputs(self) -> int:
-        user_message_count = sum(1 for msg in self._messages if msg.role == "user")
+        # Never prune tool results the model hasn't seen yet (anything after
+        # the most recent assistant message).
+        last_assistant_idx = None
+        for idx in range(len(self._messages) - 1, -1, -1):
+            if self._messages[idx].role == "assistant":
+                last_assistant_idx = idx
+                break
 
-        if user_message_count < 2:
+        if last_assistant_idx is None:
             return 0
 
         total_tokens = 0
         pruned_tokens = 0
         to_prune: list[MessageItem] = []
 
-        for msg in reversed(self._messages):
+        for msg in reversed(self._messages[:last_assistant_idx]):
             if msg.role == "tool" and msg.tool_call_id:
                 if msg.pruned_at:
                     break
@@ -295,6 +365,11 @@ I'll continue with the REMAINING tasks only, starting from where we left off."""
             msg.pruned_at = datetime.now()
             pruned_count += 1
 
+        if pruned_count > 0:
+            # API-reported usage reflects the pre-prune context; drop it so
+            # needs_pruning()/needs_compression() use the fresh local count.
+            self._latest_usage = TokenUsage()
+
         return pruned_count
 
     def needs_pruning(self) -> bool:
@@ -309,3 +384,4 @@ I'll continue with the REMAINING tasks only, starting from where we left off."""
 
     def clear(self) -> None:
         self._messages = []
+        self._latest_usage = TokenUsage()

@@ -1,7 +1,10 @@
 """Permissions command: /permissions."""
 
-from .base import Command, CommandResult
 from typing import Any
+
+from rich.markup import escape
+
+from .base import Command, CommandResult
 
 
 class PermissionsCommand(Command):
@@ -58,7 +61,7 @@ class PermissionsCommand(Command):
             return CommandResult(success=True)
 
         parts = args.split(maxsplit=1)
-        subcmd = parts[0]
+        subcmd = parts[0].lower()
         tool_name = parts[1].strip() if len(parts) > 1 else ""
 
         if subcmd == "allow":
@@ -67,7 +70,7 @@ class PermissionsCommand(Command):
             tool = registry.get(tool_name) or self._find_tool_in_all(all_tools, tool_name)
             if not tool:
                 available = [t.name for t in sorted(all_tools, key=lambda t: t.name)]
-                console.print(f"[error]Unknown tool: {tool_name}[/error]")
+                console.print(f"[error]Unknown tool: {escape(tool_name)}[/error]")
                 console.print(f"[dim]Available: {', '.join(available)}[/dim]")
                 return CommandResult(success=False)
 
@@ -76,8 +79,9 @@ class PermissionsCommand(Command):
             if allowed_set is not None and tool.name not in allowed_set:
                 config.allowed_tools.append(tool.name)
 
-            console.print(f"[green]Allowed:[/green] {tool.name}")
+            console.print(f"[green]Allowed:[/green] {escape(tool.name)}")
             self._refresh_tools_after_permission_change(agent, config, console)
+            self._persist_permissions(config, console)
 
         elif subcmd == "deny":
             if not tool_name:
@@ -85,7 +89,7 @@ class PermissionsCommand(Command):
             tool = registry.get(tool_name) or self._find_tool_in_all(all_tools, tool_name)
             if not tool:
                 available = [t.name for t in sorted(all_tools, key=lambda t: t.name)]
-                console.print(f"[error]Unknown tool: {tool_name}[/error]")
+                console.print(f"[error]Unknown tool: {escape(tool_name)}[/error]")
                 console.print(f"[dim]Available: {', '.join(available)}[/dim]")
                 return CommandResult(success=False)
 
@@ -94,20 +98,23 @@ class PermissionsCommand(Command):
             if allowed_set is not None and tool.name in allowed_set:
                 config.allowed_tools.remove(tool.name)
 
-            console.print(f"[red]Denied:[/red] {tool.name}")
+            console.print(f"[red]Denied:[/red] {escape(tool.name)}")
             self._refresh_tools_after_permission_change(agent, config, console)
+            self._persist_permissions(config, console)
 
         elif subcmd == "reset":
             config.allowed_tools = None
             config.denied_tools = []
             console.print("[green]All tool permissions reset to allowed.[/green]")
             self._refresh_tools_after_permission_change(agent, config, console)
+            # Write an empty allow list explicitly so a previously saved list is cleared
+            self._persist_permissions(config, console, include_allowed=True)
 
         else:
-            console.print(f"[error]Unknown subcommand: {subcmd}[/error]")
+            console.print(f"[error]Unknown subcommand: {escape(subcmd)}[/error]")
             tool_names = [t.name for t in sorted(all_tools, key=lambda t: t.name)]
             console.print(
-                f"[dim]Usage: /permissions [allow <tool_name>|deny <tool_name>|reset][/dim]"
+                "[dim]Usage: /permissions \\[allow <tool_name>|deny <tool_name>|reset][/dim]"
             )
             console.print(f"[dim]Available tools: {', '.join(tool_names)}[/dim]")
             return CommandResult(success=False)
@@ -130,3 +137,36 @@ class PermissionsCommand(Command):
         agent.session.context_manager.refresh_system_prompt(tools=tools)
         active = len(tools)
         console.print(f"[dim]Active tools: {active}[/dim]")
+
+    def _persist_permissions(
+        self, config: Any, console: Any, include_allowed: bool = False
+    ) -> None:
+        """Save allowed_tools/denied_tools to the project config (like /model)."""
+        project_config_path = config.cwd / ".simhacli" / "config.toml"
+        if not project_config_path.parent.exists():
+            return
+        try:
+            from config.loader import set_config_value
+
+            set_config_value(
+                "",
+                "denied_tools",
+                list(config.denied_tools or []),
+                config_path=project_config_path,
+            )
+            # allowed_tools = None means "no allow-list"; TOML has no null, and an
+            # empty list is treated the same way by the registry.
+            if include_allowed or config.allowed_tools is not None:
+                set_config_value(
+                    "",
+                    "allowed_tools",
+                    list(config.allowed_tools or []),
+                    config_path=project_config_path,
+                )
+            console.print(
+                f"[dim]Permissions saved to project config: {escape(str(project_config_path))}[/dim]"
+            )
+        except Exception as e:
+            console.print(
+                f"[warning]Could not save permissions to project config: {escape(str(e))}[/warning]"
+            )

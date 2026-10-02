@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 import click
+from rich.markup import escape
 from agent.agent import Agent
 from agent.events import AgentEventType
 import asyncio
@@ -23,7 +24,7 @@ try:
 
     __version__ = version("simhacli")
 except Exception:
-    __version__ = "1.5.1"
+    __version__ = "1.5.2"
 
 console = get_console()
 
@@ -38,7 +39,10 @@ class SimhaCLI:
 
     async def run_single(self, message: str) -> str | None:
         try:
-            async with Agent(config=self.config) as agent:
+            async with Agent(
+                config=self.config,
+                confirmation_callback=self.tui.handle_confirmation,
+            ) as agent:
                 self.agent = agent
                 return await self._process_message(message)
         finally:
@@ -131,22 +135,37 @@ class SimhaCLI:
                             continue
 
                         if user_input.startswith("/"):
-                            result = await self.command_handler.handle_command(
-                                user_input,
-                                {
-                                    "console": console,
-                                    "config": self.config,
-                                    "agent": self.agent,
-                                    "tui": self.tui,
-                                    "session": self.agent.session,
-                                },
-                            )
+                            try:
+                                result = await self.command_handler.handle_command(
+                                    user_input,
+                                    {
+                                        "console": console,
+                                        "config": self.config,
+                                        "agent": self.agent,
+                                        "tui": self.tui,
+                                        "session": self.agent.session,
+                                    },
+                                )
+                            except Exception as e:
+                                console.print(
+                                    f"[error]Command failed: {escape(str(e))}[/error]"
+                                )
+                                continue
                             if result is False:  # Exit requested
                                 return None
+                            if result and result.message:
+                                style = "error" if not result.success else "dim"
+                                console.print(
+                                    f"[{style}]{escape(result.message)}[/{style}]"
+                                )
                             continue
 
                         self.agent.clear_undo_stack()
-                        await self._process_message(user_input)
+                        try:
+                            await self._process_message(user_input)
+                        except Exception as e:
+                            console.print(f"[error]Error: {escape(str(e))}[/error]")
+                            continue
 
                         if self.agent.has_undo_changes():
                             count = self.agent.get_undo_count()
@@ -186,7 +205,7 @@ class SimhaCLI:
             for img in image_attachments:
                 size = len(img.base64_data) * 3 // 4
                 self.tui.console.print(
-                    f"[cyan][Image] {img.relative_path} ({img.mime_type}, {size:,} bytes)[/cyan]"
+                    f"[cyan]\\[Image] {escape(str(img.relative_path))} ({img.mime_type}, {size:,} bytes)[/cyan]"
                 )
 
         # Check if model supports vision

@@ -1,5 +1,6 @@
 import importlib.util
 import inspect
+import logging
 from pathlib import Path
 import sys
 from typing import Any
@@ -7,6 +8,8 @@ from config.config import Config
 from config.loader import get_config_dir
 from tools.base import Tool
 from tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class ToolDiscoveryManager:
@@ -19,12 +22,16 @@ class ToolDiscoveryManager:
         spec = importlib.util.spec_from_file_location(module_name, file_path)
 
         if spec is None or spec.loader is None:
-            return ImportError(f"Could not load spec from {file_path}")
+            raise ImportError(f"Could not load spec from {file_path}")
 
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
 
-        spec.loader.exec_module(module)
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            sys.modules.pop(module_name, None)
+            raise
         return module
 
     def _find_tool_classes(self, module: Any) -> list[Tool]:
@@ -37,6 +44,8 @@ class ToolDiscoveryManager:
                 and issubclass(obj, Tool)
                 and obj is not Tool
                 and obj.__module__ == module.__name__
+                # Skip abstract helper/base classes defined alongside real tools
+                and not inspect.isabstract(obj)
             ):
                 tools.append(obj)
 
@@ -48,22 +57,35 @@ class ToolDiscoveryManager:
         if not tool_dir.exists() or not tool_dir.is_dir():
             return
 
-        for py_file in tool_dir.glob("*.py"):
-            try:
-                if py_file.name.startswith("__"):
-                    continue
+        for py_file in sorted(tool_dir.glob("*.py")):
+            if py_file.name.startswith("__"):
+                continue
 
+            try:
                 module = self._load_tool_modules(py_file)
                 tool_classes = self._find_tool_classes(module)
+            except Exception as e:
+                logger.warning(f"Failed to load custom tools from {py_file}: {e}")
+                continue
 
-                if not tool_classes:
+            for tool_class in tool_classes:
+                try:
+                    tool = tool_class(self.config)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to instantiate custom tool {tool_class.__name__} "
+                        f"from {py_file}: {e}"
+                    )
                     continue
 
-                for tool_class in tool_classes:
-                    tool = tool_class(self.config)
-                    self.registry.register(tool)
-            except Exception:
-                continue
+                if self.registry.get(tool.name) is not None:
+                    logger.warning(
+                        f"Skipping custom tool '{tool.name}' from {py_file}: "
+                        f"a tool with that name is already registered"
+                    )
+                    continue
+
+                self.registry.register(tool)
 
     def discover_all(self) -> None:
         self.discover_from_directory(self.config.cwd)

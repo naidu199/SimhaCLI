@@ -174,8 +174,8 @@ Keep working until the task is fully resolved. Don't guess - use tools to find a
 
 ## Tool Best Practices
 - Parallelize independent tool calls for efficiency
-- Use `read_file` before editing, `edit` for changes, `write_file` for new files
-- Use `shell` for commands, `rg` for fast search
+- Use `read_file` before editing, `edit_file` for changes, `write_file` for new files
+- Use `shell` for commands, `grep`/`glob` for fast search
 - Use `todos` for multi-step tasks, `memory` for user preferences
 - Use sub-agents for complex exploration; direct tools for simple queries
 
@@ -265,7 +265,7 @@ You have access to the following tools to accomplish your tasks:
             guidelines += f"- **{tool.name}**: {description}\n"
 
     guidelines += """
-Use `read_file` before editing. Use `edit` for changes, `write_file` for new files. Use `grep`/`glob` for search. Use `shell` for commands. Use `todos` for multi-step tasks."""
+Use `read_file` before editing. Use `edit_file` for changes, `write_file` for new files. Use `grep`/`glob` for search. Use `shell` for commands. Use `todos` for multi-step tasks."""
 
     if subagent_tools:
         guidelines += (

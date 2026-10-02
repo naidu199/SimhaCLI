@@ -1,6 +1,9 @@
+from pathlib import Path
+
 from pydantic import BaseModel, Field
 from tools.base import (
     FileDiff,
+    OriginalContent,
     Tool,
     ToolConfirmation,
     ToolInvocation,
@@ -8,6 +11,19 @@ from tools.base import (
     ToolResult,
 )
 from utils.paths import ensure_parent_directory, resolve_path
+
+
+def read_original_content(path: Path) -> OriginalContent:
+    """Read the current file content (utf-8, falling back to latin-1 like read_file).
+
+    Line endings are preserved so /undo can restore the file byte-for-byte.
+    """
+    try:
+        with path.open("r", encoding="utf-8", newline="") as f:
+            return OriginalContent(f.read(), existed=True, encoding="utf-8")
+    except UnicodeDecodeError:
+        with path.open("r", encoding="latin-1", newline="") as f:
+            return OriginalContent(f.read(), existed=True, encoding="latin-1")
 
 
 class WriteFileParams(BaseModel):
@@ -23,7 +39,7 @@ class WriteFileParams(BaseModel):
 
 class WriteFileTool(Tool):
     name = "write_file"
-    description = description = (
+    description = (
         "Write content to a file. Creates the file if it doesn't exist, "
         "or overwrites if it does. Parent directories are created automatically. "
         "Use this for creating new files or completely replacing file contents. "
@@ -42,8 +58,8 @@ class WriteFileTool(Tool):
         old_content = ""
         if not is_new_file:
             try:
-                old_content = path.read_text(encoding="utf-8")
-            except Exception:
+                old_content = read_original_content(path)
+            except OSError:
                 pass
 
         diff = FileDiff(
@@ -71,10 +87,14 @@ class WriteFileTool(Tool):
         old_content = ""
 
         if not is_new_file:
+            # The original content must be captured, otherwise /undo cannot
+            # restore it - refuse to overwrite a file we cannot read.
             try:
-                old_content = path.read_text(encoding="utf-8")
-            except Exception:
-                pass
+                old_content = read_original_content(path)
+            except OSError as e:
+                return ToolResult.error_result(
+                    f"Failed to read existing file {path} before overwriting: {e}"
+                )
         try:
             if params.create_directories:
                 ensure_parent_directory(path)

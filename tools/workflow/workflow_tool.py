@@ -1,11 +1,12 @@
 """Workflow tool for executing development workflows."""
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 
 from config.config import Config
-from tools.base import Tool, ToolInvocation, ToolKind, ToolResult
-from tools.workflow.engine import WorkflowEngine, WorkflowStatus
+from tools.base import Tool, ToolConfirmation, ToolInvocation, ToolKind, ToolResult
+from tools.workflow.engine import StepStatus, WorkflowEngine, WorkflowStatus
 from tools.workflow.fullstack import (
     create_fullstack_workflow,
     CreateGitHubRepoStep,
@@ -20,6 +21,18 @@ from tools.workflow.fullstack import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Actions that push code, deploy, run install/build commands or otherwise
+# cause external side effects; these always require explicit confirmation.
+DANGEROUS_ACTIONS = {
+    "fullstack",
+    "github",
+    "push",
+    "install_deps",
+    "build",
+    "database",
+    "deploy",
+}
 
 
 class WorkflowTool(Tool):
@@ -129,8 +142,7 @@ Usage examples:
                 },
                 "branch": {
                     "type": "string",
-                    "description": "Git branch to push to (default: main)",
-                    "default": "main",
+                    "description": "Git branch to push to (default: current branch)",
                 },
                 "package_manager": {
                     "type": "string",
@@ -175,9 +187,73 @@ Usage examples:
     def is_mutating(self, params) -> bool:
         return True
 
+    @staticmethod
+    def _resolve_path(cwd: Path | str | None, project_path: Any) -> Path:
+        path = Path(str(project_path)).expanduser()
+        if not path.is_absolute():
+            path = Path(cwd or Path.cwd()) / path
+        return path
+
+    async def get_confirmation(
+        self, invocation: ToolInvocation
+    ) -> ToolConfirmation | None:
+        params = invocation.params
+        action = params.get("action", "")
+        project_path = params.get("project_path")
+        resolved = (
+            self._resolve_path(invocation.cwd, project_path) if project_path else None
+        )
+        where = f" in {resolved}" if resolved else ""
+
+        if action == "fullstack":
+            description = (
+                f"Run full workflow{where}: create GitHub repo "
+                f"'{params.get('repo_name', '')}', commit & push, install deps, "
+                f"build, set up database '{params.get('db_name', '')}', deploy to Vercel"
+            )
+        elif action == "push":
+            files = params.get("files") or ["all changes"]
+            description = (
+                f"git commit & push{where} to "
+                f"{params.get('remote', 'origin')}/{params.get('branch') or '<current branch>'}"
+                f" ({', '.join(map(str, files))}): {params.get('commit_message', '')!r}"
+            )
+        elif action == "build":
+            command = params.get("build_command") or "<auto-detected build command>"
+            description = f"Run build command{where}: {command}"
+        elif action == "install_deps":
+            manager = params.get("package_manager") or "auto-detected package manager"
+            description = f"Install dependencies{where} via {manager}"
+        elif action == "deploy":
+            description = f"Deploy{where} to Vercel"
+        elif action == "github":
+            visibility = "private" if params.get("repo_private") else "public"
+            description = (
+                f"Create {visibility} GitHub repository '{params.get('repo_name', '')}'"
+            )
+        elif action == "database":
+            description = f"Set up database '{params.get('db_name', '')}'" + (
+                " and apply SQL schema" if params.get("db_schema") else ""
+            )
+        elif action == "env_setup":
+            description = f"Create/update .env file{where}"
+        elif action == "readme":
+            description = f"Generate README.md{where}"
+        else:
+            description = f"Run workflow action '{action}'{where}"
+
+        return ToolConfirmation(
+            tool_name=self.name,
+            params=params,
+            description=description,
+            affected_paths=[resolved] if resolved else [],
+            command=None,
+            is_dangerous=action in DANGEROUS_ACTIONS,
+        )
+
     def _build_context(self, invocation: ToolInvocation) -> dict[str, Any]:
         """Build context dict from invocation params."""
-        context = {}
+        context: dict[str, Any] = {"_cwd": invocation.cwd}
         for key in [
             "repo_name", "repo_description", "repo_private", "repo_auto_init",
             "db_name", "db_schema",
@@ -190,6 +266,12 @@ Usage examples:
         ]:
             if key in invocation.params:
                 context[key] = invocation.params[key]
+
+        # Resolve project_path against the invocation cwd, not the process cwd
+        if context.get("project_path"):
+            context["project_path"] = str(
+                self._resolve_path(invocation.cwd, context["project_path"])
+            )
         return context
 
     def _format_step_result(self, step_name: str, result) -> str:
@@ -233,15 +315,20 @@ Usage examples:
         try:
             result = await step.execute(context)
             output = self._format_step_result(step_name, result)
+            metadata = {
+                "step_name": step_name,
+                "status": result.status.value,
+                **result.metadata,
+            }
 
-            return ToolResult.success_result(
-                output=output,
-                metadata={
-                    "step_name": step_name,
-                    "status": result.status.value,
-                    **result.metadata,
-                },
-            )
+            if result.status == StepStatus.FAILED:
+                return ToolResult.error_result(
+                    f"{step_name} failed: {result.error or 'unknown error'}",
+                    output=output,
+                    metadata=metadata,
+                )
+
+            return ToolResult.success_result(output=output, metadata=metadata)
         except Exception as e:
             logger.exception(f"[WorkflowTool] Error executing {step_name}")
             return ToolResult.error_result(f"{step_name} failed: {e}")
@@ -326,15 +413,22 @@ Usage examples:
             if result.error:
                 output_lines.append(f"**Error**: {result.error}")
 
-            return ToolResult.success_result(
-                output="\n".join(output_lines),
-                metadata={
-                    "workflow_status": result.status.value,
-                    "steps_completed": len(result.completed_steps),
-                    "steps_failed": len(result.failed_steps),
-                    "total_steps": len(result.steps),
-                },
-            )
+            output = "\n".join(output_lines)
+            metadata = {
+                "workflow_status": result.status.value,
+                "steps_completed": len(result.completed_steps),
+                "steps_failed": len(result.failed_steps),
+                "total_steps": len(result.steps),
+            }
+
+            if result.status == WorkflowStatus.FAILED:
+                return ToolResult.error_result(
+                    result.error or "Workflow failed",
+                    output=output,
+                    metadata=metadata,
+                )
+
+            return ToolResult.success_result(output=output, metadata=metadata)
 
         except Exception as e:
             logger.exception("[WorkflowTool] Error executing full workflow")

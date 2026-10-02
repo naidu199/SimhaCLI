@@ -1,4 +1,3 @@
-from re import M
 from tools.base import Tool
 from tools.builtin.edit_file import EditFileTool
 from tools.builtin.glob import GlobTool

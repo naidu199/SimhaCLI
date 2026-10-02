@@ -164,10 +164,15 @@ class VersionCommand(Command):
 
     async def execute(self, args: str, context: dict[str, Any]) -> CommandResult:
         try:
-            from __init__ import __version__
-        except ImportError:
-            # Fallback if import fails
-            __version__ = "unknown"
+            from importlib.metadata import version as _pkg_version
+
+            __version__ = _pkg_version("simhacli")
+        except Exception:
+            # Not installed as a distribution (e.g. running from source)
+            try:
+                from __init__ import __version__
+            except ImportError:
+                __version__ = "unknown"
         console = context.get("console")
         if console:
             console.print(f"\n[bold]SimhaCLI[/bold] version [cyan]{__version__}[/cyan]")

@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import re
 from tools.base import Tool, ToolInvocation, ToolKind, ToolResult
+from tools.builtin.glob import is_excluded_dir, make_path_matcher
 from pydantic import BaseModel, Field
 
 from utils.paths import is_binary_file, resolve_path
@@ -34,11 +35,14 @@ class GrepParams(BaseModel):
     )
 
 
+MAX_FILES_SEARCHED = 500
+
+
 class GrepTool(Tool):
     name = "grep"
     description = (
         "Search for a regex pattern in file contents. Returns matching lines with file paths and line numbers. "
-        "Supports context lines, file filtering, and match highlighting. Case-insensitive by default."
+        "Supports context lines and file filtering. Case-insensitive by default."
     )
     kind = ToolKind.READ
     schema = GrepParams
@@ -84,10 +88,16 @@ class GrepTool(Tool):
         except re.error as e:
             return ToolResult.error_result(f"Invalid regex pattern: {e}")
 
+        file_limit_hit = False
         if search_path.is_dir():
             files = self._find_files(search_path, params.file_pattern)
+            file_limit_hit = len(files) >= MAX_FILES_SEARCHED
         else:
             files = [search_path]
+        limit_note = (
+            f"(search stopped after {MAX_FILES_SEARCHED} files; "
+            "narrow the path or file_pattern to search the rest)"
+        )
 
         output_lines = []
         total_matches = 0
@@ -110,7 +120,10 @@ class GrepTool(Tool):
 
             if file_matches:
                 files_with_matches += 1
-                rel_path = file_path.relative_to(invocation.cwd)
+                try:
+                    rel_path = file_path.relative_to(invocation.cwd)
+                except ValueError:
+                    rel_path = file_path
 
                 # Limit matches per file
                 displayed_matches = file_matches[: params.max_matches_per_file]
@@ -129,9 +142,8 @@ class GrepTool(Tool):
                             )
                             output_lines.append(f"  {ctx_num}: {ctx_line}")
 
-                    # Highlight the match in the line
-                    highlighted_line = self._highlight_match(line, pattern)
-                    output_lines.append(f"→ {line_num}: {highlighted_line}")
+                    # Plain text only: this output goes to the model, so no ANSI codes
+                    output_lines.append(f"→ {line_num}: {line}")
 
                     # Add context lines after
                     if params.context_lines > 0:
@@ -163,13 +175,18 @@ class GrepTool(Tool):
             if params.file_pattern:
                 search_info += f" in files matching '{params.file_pattern}'"
 
+            no_match_msg = f"No matches found for {search_info}"
+            if file_limit_hit:
+                no_match_msg += f"\n{limit_note}"
+
             return ToolResult.success_result(
-                f"No matches found for {search_info}",
+                no_match_msg,
                 metadata={
                     "path": str(search_path),
                     "matches": 0,
                     "files_searched": len(files),
                     "files_with_matches": 0,
+                    "file_limit_hit": file_limit_hit,
                 },
             )
 
@@ -177,6 +194,8 @@ class GrepTool(Tool):
         summary = f"Found {total_matches} matches in {files_with_matches} files (searched {len(files)} files)"
         if truncated_files:
             summary += f"\n⚠️  {len(truncated_files)} files had matches truncated to {params.max_matches_per_file} per file"
+        if file_limit_hit:
+            summary += f"\n{limit_note}"
 
         result_output = summary + "\n" + "\n".join(output_lines)
 
@@ -188,49 +207,35 @@ class GrepTool(Tool):
                 "files_searched": len(files),
                 "files_with_matches": files_with_matches,
                 "truncated": len(truncated_files) > 0,
+                "file_limit_hit": file_limit_hit,
             },
         )
-
-    def _highlight_match(self, line: str, pattern: re.Pattern) -> str:
-        """Highlight matches in the line using markers."""
-        result = []
-        last_end = 0
-
-        for match in pattern.finditer(line):
-            # Add text before match
-            result.append(line[last_end : match.start()])
-            # Add highlighted match
-            result.append(f"\033[92m{match.group()}\033[0m")
-            last_end = match.end()
-
-        # Add remaining text
-        result.append(line[last_end:])
-
-        return "".join(result)
 
     def _find_files(
         self, search_path: Path, file_pattern: str | None = None
     ) -> list[Path]:
         files = []
+        matches = make_path_matcher(file_pattern, search_path) if file_pattern else None
 
         for root, dirs, filenames in os.walk(search_path):
             # Filter out excluded directories in-place
-            dirs[:] = [d for d in dirs if d not in self.EXCLUDED_DIRS]
+            dirs[:] = [d for d in dirs if not is_excluded_dir(d, self.EXCLUDED_DIRS)]
 
             for filename in filenames:
                 if filename.startswith("."):
                     continue
 
-                # Apply file pattern filter if specified
-                if file_pattern:
-                    file_path = Path(root) / filename
-                    if not file_path.match(file_pattern):
-                        continue
-
                 file_path = Path(root) / filename
+
+                # Apply file pattern filter if specified
+                if matches and not matches(
+                    file_path.relative_to(search_path).as_posix()
+                ):
+                    continue
+
                 if not is_binary_file(file_path):
                     files.append(file_path)
-                    if len(files) >= 500:
+                    if len(files) >= MAX_FILES_SEARCHED:
                         return files
 
         return files

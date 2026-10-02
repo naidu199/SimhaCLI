@@ -50,6 +50,11 @@ class LoopDetector:
             self._consecutive_failures = 1
             self._last_failed_tool_signature = current_signature
 
+    def record_tool_success(self) -> None:
+        """A successful tool call breaks any run of consecutive failures."""
+        self._consecutive_failures = 0
+        self._last_failed_tool_signature = None
+
     def check_for_loop(self) -> str | None:
         # Check for consecutive failures first
         if self._consecutive_failures >= self.max_consecutive_failures:

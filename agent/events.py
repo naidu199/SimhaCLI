@@ -123,9 +123,9 @@ class AgentEvent:
                 "success": result.success if result else False,
                 "output": result.output if result else None,
                 "error": result.error if result else None,
-                "diff": result.diff.to_diff() if result.diff else None,
+                "diff": result.diff.to_diff() if result and result.diff else None,
                 "metadata": result.metadata if result else None,
                 "truncated": result.truncated if result else False,
-                "exit_code": result.exit_code,
+                "exit_code": result.exit_code if result else None,
             },
         )

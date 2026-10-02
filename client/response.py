@@ -85,14 +85,32 @@ class ToolResultMessage:
         }
 
 
+# Key used by parse_tool_call_arguments() to signal unparseable arguments.
+# Deliberately unusual so it can't collide with a real tool parameter name.
+PARSE_ERROR_KEY = "__parse_error__"
+
+
+def _loads_dict(text: str) -> dict[str, Any] | None:
+    """json.loads that only accepts a JSON object; returns None otherwise."""
+    try:
+        value = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def parse_tool_call_arguments(arguments_str: str) -> dict[str, Any]:
-    if not arguments_str:
+    """Parse tool call arguments into a dict.
+
+    On failure (malformed JSON, or valid JSON that isn't an object), returns
+    ``{PARSE_ERROR_KEY: <raw arguments string>}``.
+    """
+    if not arguments_str or not arguments_str.strip():
         return {}
 
-    try:
-        return json.loads(arguments_str)
-    except json.JSONDecodeError:
-        pass
+    parsed = _loads_dict(arguments_str)
+    if parsed is not None:
+        return parsed
 
     # Small models often produce malformed JSON - attempt recovery
     cleaned = arguments_str.strip()
@@ -107,26 +125,20 @@ def parse_tool_call_arguments(arguments_str: str) -> dict[str, Any]:
     start = cleaned.find("{")
     end = cleaned.rfind("}")
     if start != -1 and end != -1 and end > start:
-        try:
-            return json.loads(cleaned[start : end + 1])
-        except json.JSONDecodeError:
-            pass
+        parsed = _loads_dict(cleaned[start : end + 1])
+        if parsed is not None:
+            return parsed
 
-    # Try fixing common issues: trailing commas, single quotes
-    try:
-        # Replace single quotes with double quotes (common small model mistake)
-        fixed = cleaned.replace("'", '"')
-        return json.loads(fixed)
-    except json.JSONDecodeError:
-        pass
+    # Try fixing common issues: single quotes (common small model mistake)
+    parsed = _loads_dict(cleaned.replace("'", '"'))
+    if parsed is not None:
+        return parsed
 
     # Try removing trailing commas before } or ]
     import re
 
-    try:
-        fixed = re.sub(r",\s*([}\]])", r"\1", cleaned)
-        return json.loads(fixed)
-    except json.JSONDecodeError:
-        pass
+    parsed = _loads_dict(re.sub(r",\s*([}\]])", r"\1", cleaned))
+    if parsed is not None:
+        return parsed
 
-    return {"raw_arguments": arguments_str}
+    return {PARSE_ERROR_KEY: arguments_str}

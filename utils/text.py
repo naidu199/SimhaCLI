@@ -1,28 +1,38 @@
+from functools import lru_cache
+
 import tiktoken
+
+
+@lru_cache(maxsize=32)
+def _get_encoding(model: str):
+    """Return (and cache) the tiktoken encoding for a model name."""
+    try:
+        return tiktoken.encoding_for_model(model)
+    except Exception:
+        return tiktoken.get_encoding("cl100k_base")
 
 
 def get_tokenizer(model: str):
     """
     Returns a tokenizer function based on the model name.
-    For simplicity, this is a placeholder implementation.
+
+    Special-token text (e.g. "<|endoftext|>") is encoded as plain text
+    instead of raising ValueError.
     """
-    try:
-        encoding = tiktoken.encoding_for_model(model)
-        return encoding.encode
-    except Exception:
-        encoding = tiktoken.get_encoding("cl100k_base")
-        return encoding.encode
+    encoding = _get_encoding(model)
+    return lambda text: encoding.encode(text, disallowed_special=())
 
 
 def count_tokens(text: str, model: str = "gpt-4") -> int:
     """
     Counts the number of tokens in the given text for the specified model.
     """
-    tokenizer = get_tokenizer(model)
-    if tokenizer:
-        tokens = tokenizer(text)
-        return len(tokens)
-    return estimate_token_count(text)
+    if not text:
+        return 0
+    try:
+        return len(_get_encoding(model).encode(text, disallowed_special=()))
+    except Exception:
+        return estimate_token_count(text)
 
 
 def estimate_token_count(text: str) -> int:

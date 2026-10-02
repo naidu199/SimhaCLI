@@ -6,10 +6,13 @@ Supports both text files and image files (for vision-capable models).
 """
 
 import base64
+import logging
 import mimetypes
 import re
 from pathlib import Path
 from typing import NamedTuple
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # File attachment (text files)
@@ -41,10 +44,16 @@ class ImageAttachment(NamedTuple):
 MAX_ATTACHMENT_SIZE = 1_000_000  # 1 MB max for text files
 MAX_IMAGE_SIZE = 10_000_000  # 10 MB max for image files
 
-# Common image file extensions
+# Image file extensions supported by vision APIs (sent as image_url)
 IMAGE_EXTENSIONS = {
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp",
 }
+
+# SVG is XML text: attach it as a text file instead of an image
+TEXT_IMAGE_EXTENSIONS = {".svg"}
+
+# Characters stripped from the end of an unresolved @path (e.g. "see @app.py.")
+_TRAILING_PUNCTUATION = ".,;:!?)"
 
 # Pattern to match @filename references
 # Supports:
@@ -64,6 +73,8 @@ _FILE_PATTERN = re.compile(
 def _is_image_file(path: Path) -> bool:
     """Check if a file is an image by extension or MIME type."""
     suffix = path.suffix.lower()
+    if suffix in TEXT_IMAGE_EXTENSIONS:
+        return False
     if suffix in IMAGE_EXTENSIONS:
         return True
     mime_type, _ = mimetypes.guess_type(str(path))
@@ -135,6 +146,52 @@ def _read_text_file_safe(path: Path, cwd: Path) -> str | None:
         return None
 
 
+def _resolve_candidate(path_str: str, cwd: Path) -> tuple[Path, Path, str] | None:
+    """Resolve an @path to an existing file.
+
+    Tries the raw path first, then the path with trailing punctuation stripped.
+    Returns (path, resolved_path, used_path_str) or None if nothing resolves.
+    """
+    candidates = [path_str]
+    stripped = path_str.rstrip(_TRAILING_PUNCTUATION)
+    if stripped and stripped != path_str:
+        candidates.append(stripped)
+
+    for candidate in candidates:
+        try:
+            path = Path(candidate)
+            resolved = (path if path.is_absolute() else cwd / path).resolve()
+            if resolved.is_file():
+                return path, resolved, candidate
+        except (OSError, ValueError):
+            # e.g. "File name too long" or embedded null bytes
+            continue
+    return None
+
+
+def _strip_attachment_refs(text: str, attached: set[Path], cwd: Path) -> str:
+    """Remove only the @path tokens that resolved to one of the attached files.
+
+    Other @words (emails, decorators, mentions) are left untouched.
+    """
+    if not attached:
+        return text
+
+    def _replace(match: re.Match) -> str:
+        quoted = match.group(1)
+        path_str = (quoted if quoted else match.group(2) or "").strip()
+        found = _resolve_candidate(path_str, cwd) if path_str else None
+        if found is None or found[1] not in attached:
+            return match.group(0)
+        used = found[2]
+        if not quoted and used != path_str:
+            # Keep trailing punctuation that was not part of the path
+            return path_str[len(used):]
+        return ""
+
+    return _FILE_PATTERN.sub(_replace, text)
+
+
 def parse_attachments(
     input_text: str,
     cwd: Path,
@@ -158,64 +215,82 @@ def parse_attachments(
     
     # Find all @ filename matches
     for match in _FILE_PATTERN.finditer(input_text):
-        full_match = match.group(0)
-        file_path_str = match.group(1) if match.group(1) else match.group(2)
-        
-        if not file_path_str:
+        try:
+            _parse_attachment_match(
+                match, cwd, text_attachments, image_attachments
+            )
+        except (OSError, ValueError):
+            # Overlong/invalid paths must never break message processing
             continue
-            
-        file_path_str = file_path_str.strip()
-        if not file_path_str:
-            continue
-        
-        path = Path(file_path_str)
-        # Resolve relative to cwd
-        if not path.is_absolute():
-            resolved = cwd / path
-        else:
-            resolved = path
-        
-        resolved = resolved.resolve()
-        if not resolved.exists() or not resolved.is_file():
-            continue
-        
-        # Check if image first
-        if _is_image_file(resolved):
-            if resolved.stat().st_size <= MAX_IMAGE_SIZE:
-                result = _read_image_base64(resolved)
-                if result is not None:
-                    b64, mime = result
-                    try:
-                        rel_path = str(path.relative_to(cwd)) if not path.is_absolute() else file_path_str
-                    except ValueError:
-                        rel_path = file_path_str
-                    image_attachments.append(ImageAttachment(
-                        path=resolved,
-                        relative_path=rel_path,
-                        base64_data=b64,
-                        mime_type=mime,
-                    ))
-            continue
-        
-        # Otherwise treat as text
-        if _is_valid_text_file(path, cwd):
-            content = _read_text_file_safe(path, cwd)
-            if content is not None:
+
+    attached = {a.path for a in text_attachments} | {
+        img.path for img in image_attachments
+    }
+    cleaned = _strip_attachment_refs(input_text, attached, cwd)
+
+    return cleaned, text_attachments, image_attachments
+
+
+def _parse_attachment_match(
+    match: re.Match,
+    cwd: Path,
+    text_attachments: list[FileAttachment],
+    image_attachments: list[ImageAttachment],
+) -> None:
+    """Resolve a single @path match and append it to the attachment lists."""
+    file_path_str = match.group(1) if match.group(1) else match.group(2)
+
+    if not file_path_str:
+        return
+
+    file_path_str = file_path_str.strip()
+    if not file_path_str:
+        return
+
+    found = _resolve_candidate(file_path_str, cwd)
+    if found is None:
+        return
+    path, resolved, file_path_str = found
+
+    # Check if image first
+    if _is_image_file(resolved):
+        if resolved.suffix.lower() not in IMAGE_EXTENSIONS:
+            # e.g. .bmp/.ico/.tiff are not accepted by vision APIs
+            logger.info(f"Skipping unsupported image attachment: {resolved}")
+            return
+        if resolved.stat().st_size <= MAX_IMAGE_SIZE:
+            result = _read_image_base64(resolved)
+            if result is not None:
+                b64, mime = result
                 try:
-                    if not path.is_absolute():
-                        rel_path = file_path_str
-                    else:
-                        rel_path = str(path.relative_to(cwd))
+                    rel_path = str(path.relative_to(cwd)) if not path.is_absolute() else file_path_str
                 except ValueError:
                     rel_path = file_path_str
-                
-                text_attachments.append(FileAttachment(
+                image_attachments.append(ImageAttachment(
                     path=resolved,
-                    content=content,
                     relative_path=rel_path,
+                    base64_data=b64,
+                    mime_type=mime,
                 ))
-    
-    return cleaned, text_attachments, image_attachments
+        return
+
+    # Otherwise treat as text
+    if _is_valid_text_file(path, cwd):
+        content = _read_text_file_safe(path, cwd)
+        if content is not None:
+            try:
+                if not path.is_absolute():
+                    rel_path = file_path_str
+                else:
+                    rel_path = str(path.relative_to(cwd))
+            except ValueError:
+                rel_path = file_path_str
+
+            text_attachments.append(FileAttachment(
+                path=resolved,
+                content=content,
+                relative_path=rel_path,
+            ))
 
 
 def format_message_with_attachments(
@@ -231,7 +306,9 @@ def format_message_with_attachments(
         return user_input
     
     parts: list[str] = []
-    cleaned_input = _FILE_PATTERN.sub("", user_input).strip()
+    cleaned_input = _strip_attachment_refs(
+        user_input, {a.path for a in attachments}, cwd
+    ).strip()
     
     if cleaned_input:
         parts.append(cleaned_input)
@@ -281,7 +358,10 @@ def format_multimodal_message(
     ]
     """
     content_parts: list[dict] = []
-    
+
+    # Images are sent as image parts: drop their @path tokens from the text
+    user_input = _strip_attachment_refs(user_input, {img.path for img in images}, cwd)
+
     # Text part: user input + text file attachments
     text_body = format_message_with_attachments(user_input, attachments, cwd)
     if text_body.strip():

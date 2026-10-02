@@ -9,6 +9,7 @@ from tools.base import (
 )
 from pydantic import BaseModel, Field
 
+from tools.builtin.write_file import read_original_content
 from utils.paths import ensure_parent_directory, resolve_path
 
 
@@ -28,6 +29,24 @@ class EditFileParams(BaseModel):
     replace_all: bool = Field(
         False, description="Replace all occurrences of old_string (default: false)"
     )
+
+
+def _match_line_endings(
+    content: str, old_string: str, new_string: str
+) -> tuple[str, str]:
+    """Adapt LF-only old/new strings to a CRLF file so exact matching still works
+    and inserted lines keep the file's CRLF line endings."""
+    if "\r\n" not in content:
+        return old_string, new_string
+
+    def to_crlf(text: str) -> str:
+        return text.replace("\r\n", "\n").replace("\n", "\r\n")
+
+    if old_string and old_string not in content:
+        crlf_old = to_crlf(old_string)
+        if crlf_old in content:
+            old_string = crlf_old
+    return old_string, to_crlf(new_string)
 
 
 class EditFileTool(Tool):
@@ -66,12 +85,24 @@ class EditFileTool(Tool):
                 affected_paths=[path],
             )
 
-        old_content = path.read_text(encoding="utf-8")
+        try:
+            old_content = read_original_content(path)
+        except OSError:
+            # Let execute() report the real error; still ask for approval.
+            return ToolConfirmation(
+                tool_name=self.name,
+                params=invocation.params,
+                description=f"Edit file: {path}",
+                affected_paths=[path],
+            )
 
+        old_string, new_string = _match_line_endings(
+            old_content, params.old_string, params.new_string
+        )
         if params.replace_all:
-            new_content = old_content.replace(params.old_string, params.new_string)
+            new_content = old_content.replace(old_string, new_string)
         else:
-            new_content = old_content.replace(params.old_string, params.new_string, 1)
+            new_content = old_content.replace(old_string, new_string, 1)
 
         diff = FileDiff(
             path=path,
@@ -117,14 +148,21 @@ class EditFileTool(Tool):
                 },
             )
 
-        old_content = path.read_text(encoding="utf-8")
+        try:
+            # Preserve line endings (newline="") and the original encoding.
+            old_content = read_original_content(path)
+        except OSError as e:
+            return ToolResult.error_result(f"Failed to read file {path}: {e}")
 
         if not params.old_string:
             return ToolResult.error_result(
                 "old_string is empty but file exists. Provide old_string to edit, or use write_file to overwrite."
             )
 
-        occurrence_count = old_content.count(params.old_string)
+        old_string, new_string = _match_line_endings(
+            old_content, params.old_string, params.new_string
+        )
+        occurrence_count = old_content.count(old_string)
 
         if occurrence_count == 0:
             return self._no_match_error(params.old_string, old_content, path)
@@ -141,10 +179,10 @@ class EditFileTool(Tool):
             )
 
         if params.replace_all:
-            new_content = old_content.replace(params.old_string, params.new_string)
+            new_content = old_content.replace(old_string, new_string)
             replace_count = occurrence_count
         else:
-            new_content = old_content.replace(params.old_string, params.new_string, 1)
+            new_content = old_content.replace(old_string, new_string, 1)
             replace_count = 1
 
         if new_content == old_content:
@@ -153,7 +191,14 @@ class EditFileTool(Tool):
             )
 
         try:
-            path.write_text(new_content, encoding="utf-8")
+            # Encode before touching the file so an encoding error can't truncate it.
+            # newline="" semantics: write the content exactly, no newline translation.
+            path.write_bytes(new_content.encode(old_content.encoding))
+        except UnicodeEncodeError as e:
+            return ToolResult.error_result(
+                f"failed to write file: new content cannot be encoded as "
+                f"{old_content.encoding} (the file's original encoding): {e}"
+            )
         except IOError as e:
             return ToolResult.error_result(f"failed to write file: {e}")
 

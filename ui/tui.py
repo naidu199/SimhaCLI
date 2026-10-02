@@ -14,6 +14,7 @@ from rich.syntax import Syntax
 from rich.markdown import Markdown
 from rich.status import Status
 from rich.live import Live
+from rich.markup import escape
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
@@ -778,7 +779,7 @@ class TUI:
     def display_error(self, error_message: str) -> None:
         # Stop loading indicator if it's running
         self.stop_loading()
-        self.console.print(f"[error]Error: {error_message}[/error]")
+        self.console.print(f"[error]Error: {escape(str(error_message))}[/error]")
 
     def display_file_attachments(self, attachments: list) -> None:
         """Display visual feedback for attached files (text + images)."""
@@ -814,7 +815,7 @@ class TUI:
                 else:
                     size_str = f"{size / (1024 * 1024):.1f} MB"
 
-                table.add_row(att.relative_path, str(lines), size_str)
+                table.add_row(Text(str(att.relative_path)), str(lines), size_str)
 
             self.console.print("[cyan][📎 Attached text file(s)][/cyan]")
             self.console.print(table)
@@ -829,7 +830,8 @@ class TUI:
                 size_str = f"{size / (1024 * 1024):.1f} MB"
 
             self.console.print(
-                f"[magenta][🖼️ Image] {img.relative_path} ({img.mime_type}, {size_str})[/magenta]"
+                f"[magenta]\\[🖼️ Image] {escape(str(img.relative_path))} "
+                f"({escape(str(img.mime_type))}, {size_str})[/magenta]"
             )
 
     def start_request_timer(self) -> None:
@@ -949,7 +951,8 @@ class TUI:
                 # Convert non-string values to string
                 value = str(value)
 
-            table.add_row(key, value)
+            # Tool args come from the model: render as plain text, not markup
+            table.add_row(Text(str(key)), Text(value))
 
         return table
 
@@ -1080,6 +1083,8 @@ class TUI:
         )
 
         args = self._tool_args_by_call_id.get(call_id, {})
+        metadata = metadata or {}
+        output = output or ""
 
         primary_path = None
         blocks = []
@@ -1466,11 +1471,14 @@ class TUI:
         self.console.print(panel)
 
     def handle_confirmation(self, confirmation: ToolConfirmation) -> bool:
-        # Stop any active status/spinner to allow user input
+        # Stop any active live displays/spinners so they don't redraw over the prompt
         was_status_active = self._status is not None
-        if self._status:
-            self._status.stop()
-            self._status = None
+        was_working = self._working_live is not None
+        if self._live:
+            self.end_assistant()
+        if self._thinking_live:
+            self.end_thinking()
+        self.stop_loading()
 
         output = [
             Text(confirmation.tool_name, style="tool"),
@@ -1507,7 +1515,9 @@ class TUI:
             "\nApprove?", choices=["y", "n", "yes", "no"], default="n"
         )
 
-        # Restart status if it was active before
+        # Restart the working indicator / status if they were active before
+        if was_working:
+            self.start_working()
         if was_status_active:
             self._status = self.console.status(
                 "[gold1]🦁 Simha is working...[/gold1]", spinner="dots"
@@ -1568,7 +1578,7 @@ Run these from your terminal, not in the chat:
   - `@./relative/path.py` - Explicit relative path
 - Text file contents are included for the AI to analyze (max 1MB)
 - Images are attached as base64 for vision-capable models (max 10MB)
-  - Supported: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.svg`, `.ico`
+  - Supported: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` (`.svg` is attached as text)
 
 ## Tips
 

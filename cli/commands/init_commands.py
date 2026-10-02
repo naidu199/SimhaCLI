@@ -49,11 +49,11 @@ class InitCommand(Command):
             )
         except KeyboardInterrupt:
             console.print("\n[dim]Cancelled.[/dim]")
-            return CommandResult(success=True, message="Cancelled")
+            return CommandResult(success=True)
 
         if choice == "c":
             console.print("[dim]Cancelled.[/dim]")
-            return CommandResult(success=True, message="Cancelled")
+            return CommandResult(success=True)
 
         file_targets = []
         if choice in ("1", "3"):

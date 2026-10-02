@@ -1,12 +1,32 @@
 import asyncio
 import json
 import os
+import shlex
 import signal
 import sys
 import tempfile
 from typing import Any
 from config.config import Config, HookConfig, HookTrigger
 from tools.base import ToolResult
+
+# Max size (in bytes) of a single AI_AGENT_* env value; larger values are
+# truncated to avoid E2BIG ("Argument list too long") when spawning hooks.
+MAX_ENV_VALUE_BYTES = 32 * 1024
+
+
+def _env_value(value: Any) -> str:
+    """Stringify and truncate a value so it is safe to place in os.environ."""
+    if not isinstance(value, str):
+        try:
+            value = json.dumps(value, default=str)
+        except (TypeError, ValueError):
+            value = str(value)
+    # NUL bytes are not allowed in environment values
+    value = value.replace("\x00", "")
+    encoded = value.encode("utf-8", errors="replace")
+    if len(encoded) > MAX_ENV_VALUE_BYTES:
+        value = encoded[:MAX_ENV_VALUE_BYTES].decode("utf-8", errors="ignore")
+    return value
 
 
 class HookSystem:
@@ -19,7 +39,10 @@ class HookSystem:
     async def execute_hook(self, hook: HookConfig, env: dict[str, str]) -> None:
         try:
             if hook.command:
-                await self._run_command(hook.command, hook.time_out_sec, env)
+                # Substitute the documented {file} placeholder (e.g. "black {file}")
+                file_path = env.get("AI_AGENT_FILE", "")
+                command = hook.command.replace("{file}", shlex.quote(file_path))
+                await self._run_command(command, hook.time_out_sec, env)
             else:
                 with tempfile.NamedTemporaryFile(
                     mode="w", suffix=".sh", delete=False
@@ -55,10 +78,14 @@ class HookSystem:
         try:
             await asyncio.wait_for(process.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            if sys.platform != "win32":
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            else:
-                process.kill()
+            try:
+                if sys.platform != "win32":
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                else:
+                    process.kill()
+            except ProcessLookupError:
+                # Process already exited between the timeout and the kill
+                pass
             await process.wait()
 
     def _build_env(
@@ -67,19 +94,27 @@ class HookSystem:
         tool_name: str | None = None,
         user_message: str | None = None,
         error: Exception | None = None,
+        tool_params: dict[str, Any] | None = None,
     ) -> dict[str, str]:
         env = os.environ.copy()
         env["AI_AGENT_TRIGGER"] = trigger.value
-        env["AI_AGENT_CWD"] = str(self.config.cwd)
+        env["AI_AGENT_CWD"] = _env_value(str(self.config.cwd))
+        env.pop("AI_AGENT_FILE", None)
 
         if tool_name:
-            env["AI_AGENT_TOOL_NAME"] = tool_name
+            env["AI_AGENT_TOOL_NAME"] = _env_value(tool_name)
 
         if user_message:
-            env["AI_AGENT_USER_MESSAGE"] = user_message
+            env["AI_AGENT_USER_MESSAGE"] = _env_value(user_message)
 
         if error:
-            env["AI_AGENT_ERROR"] = str(error)
+            env["AI_AGENT_ERROR"] = _env_value(str(error))
+
+        if tool_params is not None:
+            env["AI_AGENT_TOOL_PARAMS"] = _env_value(tool_params)
+            path = tool_params.get("path") if isinstance(tool_params, dict) else None
+            if path:
+                env["AI_AGENT_FILE"] = _env_value(str(path))
 
         return env
 
@@ -102,7 +137,7 @@ class HookSystem:
             HookTrigger.AFTER_AGENT,
             user_message=user_message,
         )
-        env["AI_AGENT_RESPONSE"] = agent_response
+        env["AI_AGENT_RESPONSE"] = _env_value(agent_response)
 
         for hook in self.hooks:
             if hook.trigger == HookTrigger.AFTER_AGENT:
@@ -113,8 +148,9 @@ class HookSystem:
         tool_name: str,
         tool_params: dict[str, Any],
     ) -> None:
-        env = self._build_env(HookTrigger.BEFORE_TOOL, tool_name=tool_name)
-        env["AI_AGENT_TOOL_PARAMS"] = json.dumps(tool_params)
+        env = self._build_env(
+            HookTrigger.BEFORE_TOOL, tool_name=tool_name, tool_params=tool_params
+        )
 
         for hook in self.hooks:
             if hook.trigger == HookTrigger.BEFORE_TOOL:
@@ -126,9 +162,10 @@ class HookSystem:
         tool_params: dict[str, Any],
         tool_result: ToolResult,
     ) -> None:
-        env = self._build_env(HookTrigger.AFTER_TOOL, tool_name=tool_name)
-        env["AI_AGENT_TOOL_PARAMS"] = json.dumps(tool_params)
-        env["AI_AGENT_TOOL_RESULT"] = tool_result.to_model_output()
+        env = self._build_env(
+            HookTrigger.AFTER_TOOL, tool_name=tool_name, tool_params=tool_params
+        )
+        env["AI_AGENT_TOOL_RESULT"] = _env_value(tool_result.to_model_output())
 
         for hook in self.hooks:
             if hook.trigger == HookTrigger.AFTER_TOOL:

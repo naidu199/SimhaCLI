@@ -42,7 +42,7 @@ class WorkflowCommand(Command):
             return CommandResult(success=True)
 
         parts = args.split()
-        workflow_name = parts[0]
+        workflow_name = parts[0].lower()
 
         if workflow_name == "fullstack":
             if len(parts) < 4:
@@ -65,8 +65,12 @@ class WorkflowCommand(Command):
             i = 4
             while i < len(parts):
                 if parts[i] == "--description" and i + 1 < len(parts):
-                    repo_description = parts[i + 1]
-                    i += 2
+                    # Consume all words until the next --flag
+                    j = i + 1
+                    while j < len(parts) and not parts[j].startswith("--"):
+                        j += 1
+                    repo_description = " ".join(parts[i + 1 : j])
+                    i = j
                 elif parts[i] == "--private":
                     repo_private = True
                     i += 1
@@ -109,7 +113,7 @@ class WorkflowCommand(Command):
             from tools.base import ToolInvocation
 
             params = {
-                "workflow": "fullstack",
+                "action": "fullstack",
                 "repo_name": repo_name,
                 "db_name": db_name,
                 "project_path": project_path,

@@ -3,6 +3,7 @@
 import os
 import sys
 import json
+import tempfile
 from datetime import datetime
 
 
@@ -22,7 +23,7 @@ def main():
         "error": error,
     }
 
-    log_path = os.path.expanduser("D:/SimhaCLI/hook.log")
+    log_path = os.path.join(tempfile.gettempdir(), "simhacli", "hook.log")
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     with open(log_path, "a") as f:
         f.write(f"[HOOK] {json.dumps(log_data)}\n")

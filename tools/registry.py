@@ -93,6 +93,15 @@ class ToolRegistry:
                 await hook_system.trigger_after_tool(name, params, result)
             return result
 
+        if tool.name not in {t.name for t in self.get_tools()}:
+            result = ToolResult.error_result(
+                f"Tool '{name}' is not allowed in this context",
+                metadata={"tool_name": name},
+            )
+            if hook_system:
+                await hook_system.trigger_after_tool(name, params, result)
+            return result
+
         validation_errors = tool.validate_params(params)
         if validation_errors:
             result = ToolResult.error_result(
@@ -142,6 +151,10 @@ class ToolRegistry:
                         if hook_system:
                             await hook_system.trigger_after_tool(name, params, result)
                         return result
+
+        if approval_manager and isinstance(tool, SubagentTool):
+            # Let subagents ask the user through the parent's confirmation UI
+            tool.confirmation_callback = approval_manager.confirmation_callback
 
         try:
             result = await tool.execute(invocation)

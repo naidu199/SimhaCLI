@@ -83,6 +83,16 @@ class ReadFileTool(Tool):
 
             start_idx = max(0, params.offset - 1)
 
+            if start_idx >= total_lines:
+                return ToolResult.error_result(
+                    f"Offset {params.offset} is beyond the end of the file "
+                    f"({total_lines} lines). Use an offset between 1 and {total_lines}.",
+                    metadata={
+                        "path": str(path),
+                        "total_lines": total_lines,
+                    },
+                )
+
             if params.limit is not None:
                 end_idx = min(start_idx + params.limit, total_lines)
             else:

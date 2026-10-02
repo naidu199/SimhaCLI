@@ -1,9 +1,16 @@
 import json
+import os
+import tempfile
+import time
 import uuid
 from config.config import Config
 from config.loader import get_data_dir
 from tools.base import Tool, ToolInvocation, ToolKind, ToolResult
 from pydantic import BaseModel, Field
+
+
+class MemoryLoadError(Exception):
+    """Raised when the memory file exists but cannot be parsed."""
 
 
 class MemoryParams(BaseModel):
@@ -22,41 +29,81 @@ class MemoryTool(Tool):
     kind = ToolKind.MEMORY
     schema = MemoryParams
 
-    def _load_memory(self) -> dict:
+    def _memory_path(self):
         data_dir = get_data_dir()
         data_dir.mkdir(parents=True, exist_ok=True)
-        path = data_dir / "user_memory.json"
+        return data_dir / "user_memory.json"
+
+    def _load_memory(self) -> dict:
+        path = self._memory_path()
 
         if not path.exists():
             return {"entries": {}}
 
         try:
             content = path.read_text(encoding="utf-8")
-            return json.loads(content)
-        except Exception:
-            return {"entries": {}}
+            memory = json.loads(content)
+            if not isinstance(memory, dict):
+                raise ValueError("top-level JSON value is not an object")
+            if not isinstance(memory.setdefault("entries", {}), dict):
+                raise ValueError("'entries' is not an object")
+            return memory
+        except Exception as e:
+            # Never silently fall back to empty memory: the next save would
+            # overwrite every stored entry. Move the corrupt file aside instead.
+            backup = path.with_name(f"{path.name}.corrupt-{int(time.time())}")
+            try:
+                os.replace(path, backup)
+                moved = f" It was moved to {backup}."
+            except OSError:
+                moved = ""
+            raise MemoryLoadError(
+                f"Memory file {path} is corrupt and could not be loaded ({e}).{moved}"
+            ) from e
 
     def _save_memory(self, memory: dict) -> None:
-        data_dir = get_data_dir()
-        data_dir.mkdir(parents=True, exist_ok=True)
-        path = data_dir / "user_memory.json"
+        path = self._memory_path()
 
-        path.write_text(json.dumps(memory, indent=2, ensure_ascii=False))
+        # Atomic write: temp file in the same directory, then os.replace
+        fd, tmp_name = tempfile.mkstemp(
+            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(json.dumps(memory, indent=2, ensure_ascii=False))
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_name, path)
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         params = MemoryParams(**invocation.params)
+        action = params.action.strip().lower()
 
-        if params.action.lower() == "set":
+        try:
+            return self._run_action(action, params)
+        except MemoryLoadError as e:
+            return ToolResult.error_result(str(e))
+        except OSError as e:
+            return ToolResult.error_result(f"Failed to access memory file: {e}")
+
+    def _run_action(self, action: str, params: MemoryParams) -> ToolResult:
+        if action == "set":
             if not params.key or not params.value:
                 return ToolResult.error_result(
                     "`key` and `value` are required for 'set' action"
                 )
             memory = self._load_memory()
-            memory["entries"][params.key] = params.value
+            memory.setdefault("entries", {})[params.key] = params.value
             self._save_memory(memory)
 
             return ToolResult.success_result(f"Set memory: {params.key}")
-        elif params.action.lower() == "get":
+        elif action == "get":
             if not params.key:
                 return ToolResult.error_result("`key` required for 'get' action")
 
@@ -74,9 +121,9 @@ class MemoryTool(Tool):
                     "found": True,
                 },
             )
-        elif params.action == "delete":
+        elif action == "delete":
             if not params.key:
-                return ToolResult.error_result("`key` required for 'get' action")
+                return ToolResult.error_result("`key` required for 'delete' action")
             memory = self._load_memory()
             if params.key not in memory.get("entries", {}):
                 return ToolResult.success_result(f"Memory not found: {params.key}")
@@ -85,7 +132,7 @@ class MemoryTool(Tool):
             self._save_memory(memory)
 
             return ToolResult.success_result(f"Deleted memory: {params.key}")
-        elif params.action == "list":
+        elif action == "list":
             memory = self._load_memory()
             entries = memory.get("entries", {})
             if not entries:
@@ -105,7 +152,7 @@ class MemoryTool(Tool):
                     "found": True,
                 },
             )
-        elif params.action == "clear":
+        elif action == "clear":
             memory = self._load_memory()
             count = len(memory.get("entries", {}))
             memory["entries"] = {}

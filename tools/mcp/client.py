@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
 import os
@@ -6,6 +7,10 @@ from typing import Any
 from fastmcp import Client
 from config.config import MCPServerConfig
 from fastmcp.client.transports import StdioTransport, SSETransport
+
+
+# Maximum time (seconds) to wait for a single MCP tool call to finish
+MCP_CALL_TOOL_TIMEOUT_SEC = 600.0
 
 
 class MCPServerStatus(str, Enum):
@@ -88,7 +93,9 @@ class MCPClient:
                 )
 
             self.status = MCPServerStatus.CONNECTED
-        except Exception as e:
+        except BaseException:
+            # Also covers CancelledError (e.g. asyncio.wait_for timeout), which
+            # is not an Exception subclass; re-raise so cancellation propagates.
             self.status = MCPServerStatus.ERROR
             raise
 
@@ -104,7 +111,19 @@ class MCPClient:
         if not self._client or self.status != MCPServerStatus.CONNECTED:
             raise RuntimeError(f"Not connected to server {self.name}")
 
-        result = await self._client.call_tool(tool_name, arguments)
+        try:
+            result = await asyncio.wait_for(
+                self._client.call_tool(tool_name, arguments),
+                timeout=MCP_CALL_TOOL_TIMEOUT_SEC,
+            )
+        except asyncio.TimeoutError:
+            return {
+                "output": (
+                    f"MCP tool '{tool_name}' on server '{self.name}' timed out "
+                    f"after {MCP_CALL_TOOL_TIMEOUT_SEC:g} seconds"
+                ),
+                "is_error": True,
+            }
 
         output = []
         for item in result.content:

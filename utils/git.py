@@ -7,6 +7,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of `git status` file lines included in the system prompt
+MAX_STATUS_LINES = 50
+
 
 class GitContext(NamedTuple):
     is_git_repo: bool
@@ -24,12 +27,15 @@ def _run_git(cwd: Path, *args: str, timeout: int = 5) -> str | None:
             cwd=str(cwd),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
         if result.returncode == 0:
-            return result.stdout.strip()
+            return (result.stdout or "").strip()
         return None
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+    except Exception as e:
+        logger.debug(f"git {' '.join(args)} failed: {e}")
         return None
 
 
@@ -78,6 +84,9 @@ def get_git_context(cwd: Path) -> GitContext | None:
         lines = status_output.splitlines()
         # First line is "## branch...tracking", rest are file changes
         file_lines = [l for l in lines[1:] if l.strip()] if len(lines) > 1 else []
+        if len(file_lines) > MAX_STATUS_LINES:
+            hidden = len(file_lines) - MAX_STATUS_LINES
+            file_lines = file_lines[:MAX_STATUS_LINES] + [f"... {hidden} more"]
         if file_lines:
             status = "\n".join(file_lines)
         else:

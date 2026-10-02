@@ -7,6 +7,7 @@ from typing import AsyncGenerator, Awaitable, Callable
 from agent.events import AgentEvent, AgentEventType
 from agent.session import Session
 from client.response import (
+    PARSE_ERROR_KEY,
     StreamEventType,
     TokenUsage,
     ToolCall,
@@ -67,9 +68,8 @@ class Agent:
         if self.session is None:
             yield AgentEvent.agent_error("Agent not initialized. Use 'async with Agent(...) as agent:'")
             return
-        await self.session.hook_system.trigger_before_agent(message)
-        # Extract user-readable text for event data — for multimodal messages, 
-        # pull the text parts only
+        # Extract user-readable text for event data and hooks — for multimodal
+        # messages, pull the text parts only
         msg_text = message
         if isinstance(message, list):
             text_parts = [
@@ -78,6 +78,7 @@ class Agent:
                 if part.get("type") == "text"
             ]
             msg_text = " ".join(p for p in text_parts if p) or "[Image attachment]"
+        await self.session.hook_system.trigger_before_agent(msg_text)
         yield AgentEvent.agent_start(message=msg_text)
         self.session.context_manager.add_user_message(message)
 
@@ -88,7 +89,7 @@ class Agent:
                 if event.type == AgentEventType.TEXT_COMPLETE:
                     final_message = event.data.get("content", "")
             await self.session.hook_system.trigger_after_agent(
-                user_message=message,
+                user_message=msg_text,
                 agent_response=final_message or "",
             )
             # Pass cumulative usage so the TUI can display token counts
@@ -113,8 +114,8 @@ class Agent:
         parsed_args = parse_tool_call_arguments(tool_call.arguments or "")
 
         # --- Bad JSON ---
-        if "error" in parsed_args or "raw_arguments" in parsed_args:
-            raw = parsed_args.get("raw_arguments", parsed_args.get("error", ""))
+        if PARSE_ERROR_KEY in parsed_args:
+            raw = str(parsed_args[PARSE_ERROR_KEY])
             error_result = ToolResult.error_result(
                 f"Invalid JSON in tool call arguments. Could not parse: {raw[:200]}. "
                 "Please provide valid JSON arguments."
@@ -214,8 +215,15 @@ class Agent:
             )
             result.truncated = True
 
-        should_stop = False
-        if not result.success:
+        result_msg = ToolResultMessage(
+            tool_call_id=tool_call.call_id,
+            content=output,
+            is_error=not result.success,
+        )
+
+        if result.success:
+            self.session.loop_detector.record_tool_success()
+        else:
             self.session.loop_detector.record_tool_failure(tool_call.name, parsed_args)
             loop_val = self.session.loop_detector.check_for_loop()
             if loop_val:
@@ -225,17 +233,27 @@ class Agent:
                     )
                 )
                 events.append(AgentEvent.agent_error(f"Stopping execution: {loop_val}"))
-                return (events, None, True)
+                # Still return the result so the tool_call gets a matching
+                # tool message in the context (otherwise later API calls 400).
+                return (events, result_msg, True)
 
         events.append(
             AgentEvent.tool_call_complete(tool_call.call_id, tool_call.name, result)
         )
+        return (events, result_msg, False)
+
+    @staticmethod
+    def _tool_exception_outcome(
+        tool_call: ToolCall, exc: BaseException
+    ) -> tuple[list[AgentEvent], ToolResultMessage, bool]:
+        """Build an error outcome for a tool call whose execution raised."""
+        error_result = ToolResult.error_result(f"Tool execution failed with error: {exc}")
         return (
-            events,
+            [AgentEvent.agent_error(f"Tool execution error: {exc}")],
             ToolResultMessage(
                 tool_call_id=tool_call.call_id,
-                content=output,
-                is_error=not result.success,
+                content=error_result.to_model_output(),
+                is_error=True,
             ),
             False,
         )
@@ -258,23 +276,25 @@ class Agent:
                 pruned = self.session.context_manager.prune_tool_outputs()
                 if pruned > 0:
                     yield AgentEvent.text_delta(
-                        f"\n[dim]Pruned {pruned} old tool outputs to save context.[/dim]\n"
+                        f"\nPruned {pruned} old tool outputs to save context.\n"
                     )
 
             # Check for context overflow and compress if necessary
             if self.session.context_manager.needs_compression():
                 yield AgentEvent.text_delta(
-                    "\n[dim]Context limit approaching, compressing conversation...[/dim]\n"
+                    "\nContext limit approaching, compressing conversation...\n"
                 )
-                summary, usage = await self.session.chat_compressor.compress(
+                summary, compress_usage = await self.session.chat_compressor.compress(
                     self.session.context_manager
                 )
                 if summary:
                     self.session.context_manager.replace_with_summary(summary)
-                    self.session.context_manager.set_latest_usage(usage)
-                    self.session.context_manager.add_usage(usage)
+                    # Count the compression call toward totals, but don't treat
+                    # its usage as the size of the (new, compressed) context.
+                    if compress_usage:
+                        self.session.context_manager.add_usage(compress_usage)
                     yield AgentEvent.text_delta(
-                        "[dim]Conversation compressed. Continuing...[/dim]\n"
+                        "Conversation compressed. Continuing...\n"
                     )
 
             tool_schema = self.session.tool_registry.get_schemas()
@@ -308,6 +328,11 @@ class Agent:
                 elif event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
                     finish_reason = event.final_reason
+
+            # Record usage exactly once per LLM call, before any branching
+            if usage:
+                self.session.context_manager.set_latest_usage(usage)
+                self.session.context_manager.add_usage(usage)
 
             # Close thinking display if still open (e.g. thinking → tool_calls)
             if thinking_text:
@@ -349,7 +374,8 @@ class Agent:
                         "Your response was cut off due to output length limits, and "
                         "your tool call arguments were truncated (incomplete JSON). "
                         "Please retry — if the content is large, break it into "
-                        "smaller parts using multiple tool calls."
+                        "smaller parts using multiple tool calls.",
+                        synthetic=True,
                     )
                 else:
                     # Text-only output was cut off. Save what we got, then
@@ -363,11 +389,9 @@ class Agent:
                         "Your response was cut off due to output length limits. "
                         "Please continue exactly where you left off. Do NOT repeat "
                         "any content you already produced — just continue from the "
-                        "exact point of interruption."
+                        "exact point of interruption.",
+                        synthetic=True,
                     )
-                if usage:
-                    self.session.context_manager.set_latest_usage(usage)
-                    self.session.context_manager.add_usage(usage)
                 continue
 
             # Normal (non-truncated) response — save with tool calls intact
@@ -385,76 +409,64 @@ class Agent:
                 if not response_text and empty_retries < 1:
                     empty_retries += 1
                     self.session.context_manager.add_user_message(
-                        "Your last response was empty. Please continue with the task."
+                        "Your last response was empty. Please continue with the task.",
+                        synthetic=True,
                     )
                     continue
 
-                if usage:
-                    self.session.context_manager.set_latest_usage(usage)
-                    self.session.context_manager.add_usage(usage)
-                self.session.context_manager.prune_tool_outputs()
                 return
 
             # Reset empty retries since tool calls were made
             empty_retries = 0
 
             # --- Execute tool calls (parallel when >1, sequential for single) ---
-            tool_call_results: list[ToolResultMessage] = []
+            outcomes: list[tuple[list[AgentEvent], ToolResultMessage | None, bool]] = []
 
             if len(tool_calls) == 1:
-                # Single tool call — run directly and yield events immediately
-                events, result_msg, should_stop = await self._execute_tool_call(
-                    tool_calls[0]
-                )
-                for ev in events:
-                    yield ev
-                if should_stop:
-                    return
-                if result_msg:
-                    tool_call_results.append(result_msg)
+                # Single tool call — run directly
+                try:
+                    outcomes.append(await self._execute_tool_call(tool_calls[0]))
+                except Exception as e:
+                    outcomes.append(self._tool_exception_outcome(tool_calls[0], e))
             else:
                 # Multiple tool calls — run in parallel via asyncio.gather
                 tasks = [self._execute_tool_call(tc) for tc in tool_calls]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
+                for tc, r in zip(tool_calls, results):
+                    if isinstance(r, BaseException):
+                        # Still answer this tool_call id so the context stays valid
+                        outcomes.append(self._tool_exception_outcome(tc, r))
+                    else:
+                        outcomes.append(r)
 
-                stop_requested = False
-                for r in results:
-                    if isinstance(r, Exception):
-                        yield AgentEvent.agent_error(f"Tool execution error: {r}")
-                        continue
-                    events, result_msg, should_stop = r
-                    for ev in events:
-                        yield ev
-                    if should_stop:
-                        stop_requested = True
-                    if result_msg:
-                        tool_call_results.append(result_msg)
+            # Add tool results to context BEFORE yielding events, so a consumer
+            # abandoning the generator mid-yield can't leave orphaned tool calls.
+            stop_requested = False
+            for _, result_msg, should_stop in outcomes:
+                if result_msg:
+                    self.session.context_manager.add_tool_result(
+                        result_msg.tool_call_id,
+                        result_msg.content,
+                    )
+                if should_stop:
+                    stop_requested = True
 
-                if stop_requested:
-                    return
+            for events, _, _ in outcomes:
+                for ev in events:
+                    yield ev
 
-            # Add tool results to context
-            for tool_result in tool_call_results:
-                self.session.context_manager.add_tool_result(
-                    tool_result.tool_call_id,
-                    tool_result.content,
-                )
+            if stop_requested:
+                return
 
             loop_detector_value = self.session.loop_detector.check_for_loop()
             if loop_detector_value:
                 loop_prompt = create_loop_breaker_prompt(
                     loop_description=loop_detector_value,
                 )
-                self.session.context_manager.add_user_message(loop_prompt)
+                self.session.context_manager.add_user_message(loop_prompt, synthetic=True)
                 # Reset loop detector after intervention to allow fresh actions
                 self.session.loop_detector.clear()
                 continue
-
-            if usage:
-                self.session.context_manager.set_latest_usage(usage)
-                self.session.context_manager.add_usage(usage)
-
-            self.session.context_manager.prune_tool_outputs()
 
         yield AgentEvent.agent_error(
             f"Maximum number of turns {self.config.max_turns} reached."
@@ -464,7 +476,12 @@ class Agent:
         # Create session when entering context
         self.session = Session(config=self.config)
         self.session.approval_manager.confirmation_callback = self._confirmation_callback
-        await self.session.initialize()
+        try:
+            await self.session.initialize()
+        except BaseException:
+            # Don't leak the HTTP client / already-started MCP servers
+            await self.__aexit__(None, None, None)
+            raise
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:

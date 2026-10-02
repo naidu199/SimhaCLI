@@ -2,11 +2,11 @@ from pathlib import Path
 
 
 def resolve_path(base: str | Path, path: str | Path):
-    path = Path(path)
+    path = Path(path).expanduser()
     if path.is_absolute():
         return path.resolve()
 
-    return Path(base).resolve() / path
+    return (Path(base) / path).resolve()
 
 
 def display_path_rel_to_cwd(path: str, cwd: Path | None) -> str:

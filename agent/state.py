@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import json
 import os
+from pathlib import Path
+import tempfile
 from typing import Any
 from client.response import TokenUsage
 from config.loader import get_data_dir
@@ -39,6 +41,41 @@ class SessionSnapshot:
         )
 
 
+def _is_safe_id(identifier: str) -> bool:
+    """Reject ids that could escape the storage directory."""
+    if not identifier or identifier in (".", ".."):
+        return False
+    if "/" in identifier or "\\" in identifier or ".." in identifier:
+        return False
+    if os.sep in identifier or (os.altsep and os.altsep in identifier):
+        return False
+    if "\x00" in identifier:
+        return False
+    return True
+
+
+def _write_json_atomic(file_path: Path, data: dict[str, Any]) -> None:
+    """Write JSON to a temp file in the same directory, then os.replace it."""
+    fd, tmp_path = tempfile.mkstemp(
+        dir=file_path.parent, prefix=f".{file_path.stem}.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fp:
+            json.dump(data, fp, indent=2)
+            fp.flush()
+            os.fsync(fp.fileno())
+        # Skip chmod on Windows (mkstemp already creates the file as 0o600)
+        if os.name != "nt":
+            os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, file_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 class StateManager:
     def __init__(self):
         self.data_dir = get_data_dir()
@@ -57,14 +94,12 @@ class StateManager:
 
         file_path = self.sessions_dir / f"{snapshot.session_id}.json"
 
-        with open(file_path, "w", encoding="utf-8") as fp:
-            json.dump(snapshot.to_dict(), fp, indent=2)
-
-        # Skip chmod on Windows
-        if os.name != "nt":
-            os.chmod(file_path, 0o600)
+        _write_json_atomic(file_path, snapshot.to_dict())
 
     def load_session(self, session_id: str) -> SessionSnapshot | None:
+        if not _is_safe_id(session_id):
+            return None
+
         file_path = self.sessions_dir / f"{session_id}.json"
 
         if not file_path.exists():
@@ -78,16 +113,20 @@ class StateManager:
     def list_sessions(self) -> list[dict[str, Any]]:
         sessions = []
         for file_path in self.sessions_dir.glob("*.json"):
-            with open(file_path, "r", encoding="utf-8") as fp:
-                data = json.load(fp)
-            sessions.append(
-                {
-                    "session_id": data["session_id"],
-                    "created_at": data["created_at"],
-                    "updated_at": data["updated_at"],
-                    "turn_count": data["turn_count"],
-                }
-            )
+            try:
+                with open(file_path, "r", encoding="utf-8") as fp:
+                    data = json.load(fp)
+                sessions.append(
+                    {
+                        "session_id": data["session_id"],
+                        "created_at": data["created_at"],
+                        "updated_at": data["updated_at"],
+                        "turn_count": data["turn_count"],
+                    }
+                )
+            except (OSError, ValueError, KeyError, TypeError):
+                # Skip corrupt / partially written session files
+                continue
 
         sessions.sort(key=lambda x: x["updated_at"], reverse=True)
         return sessions
@@ -100,16 +139,14 @@ class StateManager:
         checkpoint_id = f"{snapshot.session_id}_{timestamp}"
         file_path = self.checkpoints_dir / f"{checkpoint_id}.json"
 
-        with open(file_path, "w", encoding="utf-8") as fp:
-            json.dump(snapshot.to_dict(), fp, indent=2)
-
-        # Skip chmod on Windows
-        if os.name != "nt":
-            os.chmod(file_path, 0o600)
+        _write_json_atomic(file_path, snapshot.to_dict())
 
         return checkpoint_id
 
     def load_checkpoint(self, checkpoint_id: str) -> SessionSnapshot | None:
+        if not _is_safe_id(checkpoint_id):
+            return None
+
         file_path = self.checkpoints_dir / f"{checkpoint_id}.json"
 
         if not file_path.exists():

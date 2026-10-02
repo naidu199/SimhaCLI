@@ -49,6 +49,9 @@ log = logging.getLogger(__name__)
 
 
 def _is_authorized(update: Update, cfg: Config) -> bool:
+    # Edited messages, channel posts, etc. may have no message/user attached
+    if update.effective_user is None or update.message is None:
+        return False
     uid = update.effective_user.id
     if uid not in cfg.telegram.allowed_user_ids:
         log.warning(f"Unauthorized access: user_id={uid}")
@@ -57,6 +60,14 @@ def _is_authorized(update: Update, cfg: Config) -> bool:
 
 
 # ─── /cmd routing via your existing CommandHandler ───────────────────────────
+
+# Commands that require the terminal UI / host stdin prompts and would block
+# or crash in bot mode.
+_INTERACTIVE_ONLY_COMMANDS = {"/init", "/undo"}
+# Interactive when called without arguments (prompts for the command)
+_INTERACTIVE_WITHOUT_ARGS_COMMANDS = {"/run", "/!"}
+# Interactive when called with arguments (update/key/url prompt for values)
+_INTERACTIVE_WITH_ARGS_COMMANDS = {"/credentials", "/creds"}
 
 
 async def _dispatch_repl_command(
@@ -72,6 +83,30 @@ async def _dispatch_repl_command(
     """
     from cli.factory import create_command_registry
     from cli.command_handler import CommandHandler as SimhaCommandHandler
+
+    # Normalize "/cmd@BotName args" -> "/cmd args"
+    parts = slash_input.strip().split(maxsplit=1)
+    cmd_name = parts[0].split("@", 1)[0].lower() if parts else ""
+    cmd_args = parts[1].strip() if len(parts) > 1 else ""
+    slash_input = f"{cmd_name} {cmd_args}".strip()
+
+    # Commands that need the terminal UI or prompt on the host's stdin
+    if cmd_name in _INTERACTIVE_ONLY_COMMANDS or (
+        cmd_name in _INTERACTIVE_WITHOUT_ARGS_COMMANDS and not cmd_args
+    ) or (cmd_name in _INTERACTIVE_WITH_ARGS_COMMANDS and cmd_args):
+        return (
+            f"⛔ `{slash_input}` is interactive and only works in the terminal, "
+            "not in bot mode."
+        )
+
+    # /clear: the bot keeps context in session_state between runs
+    if cmd_name == "/clear":
+        session_state.pop("messages", None)
+        agent = session_state.get("agent")
+        if agent and agent.session:
+            agent.session.context_manager.clear()
+            agent.session.loop_detector.clear()
+        return "🦁 Conversation cleared."
 
     buf = io.StringIO()
     capture_console = Console(
@@ -161,16 +196,18 @@ async def _run_agent(
             display_status = status
 
         text = (
-            display_status + "\n" + "\n".join(process_lines)
+            display_status + "\n" + _recent_lines(process_lines)
             if process_lines
             else display_status
         )
         try:
-            await thinking_msg.edit_text(text, parse_mode="Markdown")
+            await thinking_msg.edit_text(_truncate(text), parse_mode="Markdown")
         except Exception:
             pass
 
     try:
+        # No confirmation callback in bot mode: actions that need user
+        # confirmation are denied unless the approval policy allows them.
         async with Agent(config=cfg) as agent:
             # Restore previous context
             saved_messages = session_state.get("messages", [])
@@ -195,7 +232,12 @@ async def _run_agent(
                     if success:
                         process_lines.append(f"🦁 `{name}` completed")
                     else:
-                        process_lines.append(f"🦁 `{name}` failed")
+                        error = str(event.data.get("error") or "").strip()
+                        if len(error) > 100:
+                            error = error[:97] + "..."
+                        process_lines.append(
+                            f"🦁 `{name}` failed" + (f": {error}" if error else "")
+                        )
                     await update_status("🔄 **Processing results**", spinner=True)
 
                 elif event.type == AgentEventType.TEXT_DELTA:
@@ -224,18 +266,20 @@ async def _run_agent(
 
     # Final result
     final_output = response_content.strip()
+    steps = _recent_lines(process_lines)
     if error_message:
-        final_text = "\n".join(process_lines) + f"\n\n🦁 **Failed**: {error_message}"
+        final_text = steps + f"\n\n🦁 **Failed**: {error_message}"
     elif final_output:
-        final_text = "\n".join(process_lines) + f"\n\n🦁 **Response**:\n{final_output}"
+        final_text = steps + f"\n\n🦁 **Response**:\n{final_output}"
     else:
-        final_text = "\n".join(process_lines) + "\n\n🦁 **Completed** (no text output)"
+        final_text = steps + "\n\n🦁 **Completed** (no text output)"
 
-    try:
-        await thinking_msg.edit_text(final_text, parse_mode="Markdown")
-    except Exception:
-        plain = final_text.replace("`", "").replace("*", "")
-        await thinking_msg.edit_text(plain)
+    # Telegram messages are limited to 4096 chars: edit the placeholder with the
+    # first chunk and send the rest as follow-up messages.
+    chunks = _split_message(final_text.strip())
+    await _send_markdown_or_plain(thinking_msg.edit_text, chunks[0])
+    for chunk in chunks[1:]:
+        await _send_markdown_or_plain(thinking_msg.reply_text, chunk)
 
     if error_message:
         return f"🦁 {error_message}"
@@ -250,6 +294,40 @@ def _truncate(text: str, limit: int = 4000) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n\n…(truncated — {len(text)} chars total)"
+
+
+def _recent_lines(lines: list[str], max_lines: int = 20) -> str:
+    """Join the most recent progress lines, summarizing older ones."""
+    if len(lines) <= max_lines:
+        return "\n".join(lines)
+    hidden = len(lines) - max_lines
+    return "\n".join([f"… ({hidden} earlier steps)"] + lines[-max_lines:])
+
+
+def _split_message(text: str, limit: int = 4000) -> list[str]:
+    """Split text into chunks that fit in a Telegram message (max 4096 chars)."""
+    chunks: list[str] = []
+    while len(text) > limit:
+        cut = text.rfind("\n", 0, limit)
+        if cut <= 0:
+            cut = limit
+        chunks.append(text[:cut])
+        text = text[cut:].lstrip("\n")
+    if text or not chunks:
+        chunks.append(text or "🦁 Done.")
+    return chunks
+
+
+async def _send_markdown_or_plain(send, text: str) -> None:
+    """Send/edit with Markdown, falling back to plain text if parsing fails."""
+    try:
+        await send(text, parse_mode="Markdown")
+    except Exception:
+        plain = text.replace("`", "").replace("*", "")
+        try:
+            await send(plain)
+        except Exception:
+            log.exception("Failed to deliver message to Telegram")
 
 
 async def _safe_edit(msg, text: str) -> None:
@@ -306,30 +384,31 @@ async def _handle_photo(
     )
 
     # Build the message to send — multimodal if images present, else plain text
-    user_input = caption if caption else ""
     add_photo_info = f"\n\n[Photo attached: {mime_type}, {size:,} bytes]"
-    
+
     # Check if model supports vision
     model_supports_vision = getattr(cfg.model, 'supports_vision', True)
-    
-    if model_supports_vision:
-        # Send full multimodal message with image
-        multimodal = format_multimodal_message(user_input, [], [img], Path.cwd())
-        status_msg = f"📷 [Photo attached: {mime_type}, {size:,} bytes]\n\n⏳ Analyzing image with vision model..."
-    else:
-        # Fallback: just describe the image by name
-        multimodal = format_message_with_attachments(user_input, [], Path.cwd())
+
+    if not model_supports_vision:
         add_photo_info = f"\n\n[Image attached: {img.relative_path} - model does not support vision]"
-        status_msg = f"📷 [Photo attached: {mime_type}, {size:,} bytes]\n\n⚠️ Model does not support vision, image described by name only."
-    
+
     caption_with_info = (
         f"{caption}{add_photo_info}"
         if caption
-        else add_photo_info
+        else add_photo_info.strip()
     )
-    
+
+    if model_supports_vision:
+        # Send full multimodal message with image
+        multimodal = format_multimodal_message(caption_with_info, [], [img], Path.cwd())
+        status_msg = f"📷 [Photo attached: {mime_type}, {size:,} bytes]\n\n⏳ Analyzing image with vision model..."
+    else:
+        # Fallback: just describe the image by name
+        multimodal = format_message_with_attachments(caption_with_info, [], Path.cwd())
+        status_msg = f"📷 [Photo attached: {mime_type}, {size:,} bytes]\n\n⚠️ Model does not support vision, image described by name only."
+
     await _safe_edit(thinking_msg, status_msg)
-    
+
     uid = update.effective_user.id
     session_state = _get_session(context, uid)
     result = await _run_agent(multimodal, cfg, session_state, thinking_msg)
@@ -342,12 +421,13 @@ def make_handlers(cfg: Config):
 
     async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not _is_authorized(update, cfg):
-            await update.message.reply_text("⛔ You are not authorized.")
+            if update.message is not None:
+                await update.message.reply_text("⛔ You are not authorized.")
             return
         name = update.effective_user.first_name or "there"
         await update.message.reply_text(
             f"👋 Hey {name}! SimhaCLI is ready.\n\n"
-            f"🤖 **Model**: `{cfg.model}`\n\n"
+            f"🤖 **Model**: `{cfg.model.name}`\n\n"
             "📝 Send a message to run the agent\n"
             "⚙️ Use `/tools` to see available tools\n"
             "ℹ️ Use `/stats` for session info\n"
@@ -452,7 +532,7 @@ def run_bot(cfg: Config) -> None:
 
     log.info(
         f"SimhaCLI Telegram bot live | "
-        f"model={cfg.model} | "
+        f"model={cfg.model.name} | "
         f"users={cfg.telegram.allowed_user_ids}"
     )
     app.run_polling(drop_pending_updates=True)

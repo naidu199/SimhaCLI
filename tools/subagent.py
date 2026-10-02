@@ -1,7 +1,7 @@
 import asyncio
-from typing import Any
+from typing import Any, Awaitable, Callable
 from config.config import Config
-from tools.base import Tool, ToolInvocation, ToolResult
+from tools.base import Tool, ToolConfirmation, ToolInvocation, ToolResult
 from dataclasses import dataclass
 from pydantic import BaseModel, Field
 from threading import Lock
@@ -80,6 +80,11 @@ class SubagentTool(Tool):
     def __init__(self, config: Config, definition: SubagentDefinition):
         super().__init__(config)
         self.definition = definition
+        # Set by the parent ToolRegistry before execution so the subagent can
+        # ask the user for confirmation through the parent's UI.
+        self.confirmation_callback: (
+            Callable[[ToolConfirmation], Awaitable[bool] | bool] | None
+        ) = None
 
     @property
     def name(self) -> str:
@@ -133,45 +138,55 @@ class SubagentTool(Tool):
         # Register with shared status manager
         status_manager.start(agent_name)
 
+        async def consume_events(agent: Agent) -> None:
+            nonlocal final_response, error, terminate_response
+
+            async for event in agent.run(prompt):
+                if event.type == AgentEventType.THINKING_DELTA:
+                    status_manager.update(agent_name, "Thinking...", "cyan")
+                elif event.type == AgentEventType.TOOL_CALL_START:
+                    tool_name = event.data.get("name", "unknown")
+                    tool_calls.append(tool_name)
+                    status_manager.update(agent_name, f"→ {tool_name}", "yellow")
+                elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+                    tool_name = event.data.get("name", "unknown")
+                    success = event.data.get("success", False)
+                    style = "green" if success else "red"
+                    mark = "✓" if success else "✗"
+                    status_manager.update(agent_name, f"{mark} {tool_name}", style)
+                elif event.type == AgentEventType.TEXT_DELTA:
+                    status_manager.update(agent_name, "Writing...", "blue")
+                elif event.type == AgentEventType.TEXT_COMPLETE:
+                    final_response = event.data.get("content")
+                elif event.type == AgentEventType.AGENT_END:
+                    if final_response is None:
+                        final_response = event.data.get("message")
+                elif event.type == AgentEventType.AGENT_ERROR:
+                    terminate_response = "error"
+                    error = event.data.get("message") or "Unknown"
+                    final_response = f"Sub-agent error: {error}"
+                    break
+
         try:
-            async with Agent(subagent_config) as agent:
-                deadline = (
-                    asyncio.get_event_loop().time() + self.definition.timeout_seconds
+            async with Agent(
+                subagent_config,
+                confirmation_callback=self.confirmation_callback,
+            ) as agent:
+                await asyncio.wait_for(
+                    consume_events(agent),
+                    timeout=self.definition.timeout_seconds,
                 )
 
-                async for event in agent.run(prompt):
-                    if asyncio.get_event_loop().time() > deadline:
-                        terminate_response = "timeout"
-                        final_response = "Sub-agent timed out"
-                        status_manager.update(agent_name, "⏱ Timeout", "yellow")
-                        break
-
-                    if event.type == AgentEventType.THINKING_DELTA:
-                        status_manager.update(agent_name, "Thinking...", "cyan")
-                    elif event.type == AgentEventType.TOOL_CALL_START:
-                        tool_name = event.data.get("name", "unknown")
-                        tool_calls.append(tool_name)
-                        status_manager.update(agent_name, f"→ {tool_name}", "yellow")
-                    elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
-                        tool_name = event.data.get("name", "unknown")
-                        success = event.data.get("success", False)
-                        style = "green" if success else "red"
-                        mark = "✓" if success else "✗"
-                        status_manager.update(agent_name, f"{mark} {tool_name}", style)
-                    elif event.type == AgentEventType.TEXT_DELTA:
-                        status_manager.update(agent_name, "Writing...", "blue")
-                    elif event.type == AgentEventType.TEXT_COMPLETE:
-                        final_response = event.data.get("content")
-                    elif event.type == AgentEventType.AGENT_END:
-                        if final_response is None:
-                            final_response = event.data.get("response")
-                    elif event.type == AgentEventType.AGENT_ERROR:
-                        terminate_response = "error"
-                        error = event.data.get("error", "Unknown")
-                        final_response = f"Sub-agent error: {error}"
-                        break
-
             status_manager.complete(agent_name, success=(error is None))
+
+        except asyncio.TimeoutError:
+            terminate_response = "timeout"
+            error = (
+                f"Sub-agent timed out after {self.definition.timeout_seconds:g}s"
+            )
+            final_response = f"{error}. Partial result: {final_response or 'None'}"
+            status_manager.update(agent_name, "⏱ Timeout", "yellow")
+            status_manager.complete(agent_name, success=False)
 
         except Exception as e:
             terminate_response = "error"

@@ -1,8 +1,11 @@
 """Model and approval commands: /model, /approval, /credentials."""
 
-from .base import Command, CommandResult
 from typing import Any
+
+from rich.markup import escape
+
 from config.config import ApprovalPolicy
+from .base import Command, CommandResult
 
 
 class ModelCommand(Command):
@@ -17,9 +20,10 @@ class ModelCommand(Command):
         if not config or not console:
             return CommandResult(success=False, message="Missing context")
 
+        args = args.strip()
         if args:
             config.model_name = args
-            console.print(f"[success]Model changed to: {args}[/success]")
+            console.print(f"[success]Model changed to: {escape(args)}[/success]")
 
             if agent and agent.session:
                 tools = agent.session.tool_registry.get_tools()
@@ -33,11 +37,11 @@ class ModelCommand(Command):
                         from config.loader import set_config_value
 
                         set_config_value("model", "name", args, config_path=project_config_path)
-                        console.print(f"[dim]Model saved to project config: {project_config_path}[/dim]")
+                        console.print(f"[dim]Model saved to project config: {escape(str(project_config_path))}[/dim]")
                     except Exception as e:
-                        console.print(f"[warning]Could not save to project config: {e}[/warning]")
+                        console.print(f"[warning]Could not save to project config: {escape(str(e))}[/warning]")
         else:
-            console.print(f"Current model: {config.model_name}")
+            console.print(f"Current model: {escape(str(config.model_name))}")
 
         return CommandResult(success=True)
 
@@ -52,27 +56,36 @@ class ApprovalCommand(Command):
 
     async def execute(self, args: str, context: dict[str, Any]) -> CommandResult:
         config = context.get("config")
+        agent = context.get("agent")
         console = context.get("console")
         if not config or not console:
             return CommandResult(success=False, message="Missing context")
 
+        args = args.strip().lower()
         if args:
             try:
                 approval = ApprovalPolicy(args)
                 config.approval = approval
-                console.print(f"[success]Approval policy changed to: {args}[/success]")
-                
+
+                # Also update the live ApprovalManager so the change takes effect now
+                session = getattr(agent, "session", None) if agent else None
+                approval_manager = getattr(session, "approval_manager", None) if session else None
+                if approval_manager is not None:
+                    approval_manager.approval_policy = approval
+
+                console.print(f"[success]Approval policy changed to: {escape(args)}[/success]")
+
                 # Save to project config (local only, preserving comments)
                 project_config_path = config.cwd / ".simhacli" / "config.toml"
                 if project_config_path.parent.exists():
                     try:
                         from config.loader import set_config_value
                         set_config_value("", "approval", args, config_path=project_config_path)
-                        console.print(f"[dim]Approval saved to project config: {project_config_path}[/dim]")
+                        console.print(f"[dim]Approval saved to project config: {escape(str(project_config_path))}[/dim]")
                     except Exception as e:
-                        console.print(f"[warning]Could not save to project config: {e}[/warning]")
+                        console.print(f"[warning]Could not save to project config: {escape(str(e))}[/warning]")
             except ValueError:
-                console.print(f"[error]Incorrect approval policy: {args}[/error]")
+                console.print(f"[error]Incorrect approval policy: {escape(args)}[/error]")
                 console.print(f"Valid options: {', '.join(p.value for p in ApprovalPolicy)}")
         else:
             console.print(f"Current approval policy: {config.approval.value}")
@@ -108,9 +121,9 @@ class CredentialsCommand(Command):
             console.print()
             console.print(
                 Panel(
-                    f"[bold]API Base URL:[/bold] {api_base_url or '[dim]Not set[/dim]'}\n"
-                    f"[bold]API Key:[/bold] {_mask_api_key(api_key) if api_key else '[dim]Not set[/dim]'}\n\n"
-                    f"[dim]Config file: {config_path}[/dim]",
+                    f"[bold]API Base URL:[/bold] {escape(api_base_url) if api_base_url else '[dim]Not set[/dim]'}\n"
+                    f"[bold]API Key:[/bold] {escape(_mask_api_key(api_key)) if api_key else '[dim]Not set[/dim]'}\n\n"
+                    f"[dim]Config file: {escape(str(config_path))}[/dim]",
                     title="[bold yellow]🔑 Current Credentials[/bold yellow]",
                     border_style="yellow",
                 )
@@ -121,7 +134,7 @@ class CredentialsCommand(Command):
             console.print("[dim]Use '/credentials url' to update only base URL[/dim]")
             return CommandResult(success=True)
 
-        operation = args.strip()
+        operation = args.strip().lower()
 
         api_base_url = config.get_api_base_url()
         api_key = config.get_api_key()
@@ -139,9 +152,9 @@ class CredentialsCommand(Command):
                     "[bold yellow]Enter new API Base URL[/bold yellow]",
                     default=api_base_url or "",
                 )
-            set_config_value("auth", "api_base_url", api_base_url)
+            set_config_value("", "api_base_url", api_base_url)
             config.api_base_url = api_base_url
-            console.print(f"[green]✓ Base URL updated: {api_base_url}[/green]")
+            console.print(f"[green]✓ Base URL updated: {escape(api_base_url)}[/green]")
 
             console.print()
             new_key = Prompt.ask(
@@ -149,9 +162,9 @@ class CredentialsCommand(Command):
             )
             if new_key.strip():
                 api_key = new_key.strip()
-                set_config_value("auth", "api_key", api_key)
+                set_config_value("", "api_key", api_key)
                 config.api_key = api_key
-                console.print(f"[green]✓ API Key updated: {_mask_api_key(api_key)}[/green]")
+                console.print(f"[green]✓ API Key updated: {escape(_mask_api_key(api_key))}[/green]")
             else:
                 console.print("[dim]API Key unchanged[/dim]")
 
@@ -162,9 +175,9 @@ class CredentialsCommand(Command):
             )
             if new_key.strip():
                 api_key = new_key.strip()
-                set_config_value("auth", "api_key", api_key)
+                set_config_value("", "api_key", api_key)
                 config.api_key = api_key
-                console.print(f"[green]✓ API Key updated: {_mask_api_key(api_key)}[/green]")
+                console.print(f"[green]✓ API Key updated: {escape(_mask_api_key(api_key))}[/green]")
             else:
                 console.print("[dim]API Key unchanged[/dim]")
 
@@ -181,15 +194,15 @@ class CredentialsCommand(Command):
                     "[bold yellow]Enter new API Base URL[/bold yellow]",
                     default=api_base_url or "",
                 )
-            set_config_value("auth", "api_base_url", api_base_url)
+            set_config_value("", "api_base_url", api_base_url)
             config.api_base_url = api_base_url
-            console.print(f"[green]✓ Base URL updated: {api_base_url}[/green]")
+            console.print(f"[green]✓ Base URL updated: {escape(api_base_url)}[/green]")
 
         else:
-            console.print(f"[error]Unknown operation: {operation}[/error]")
+            console.print(f"[error]Unknown operation: {escape(operation)}[/error]")
             return CommandResult(success=False)
 
-        console.print(f"\n[green]✓ Credentials saved to: {config_path}[/green]")
+        console.print(f"\n[green]✓ Credentials saved to: {escape(str(config_path))}[/green]")
 
         if agent and agent.session:
             await agent.session.client.close_client()

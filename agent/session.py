@@ -49,13 +49,16 @@ class Session:
         git_ctx = get_git_context(self.config.cwd)
         git_context_str = format_git_context(git_ctx) if git_ctx else None
 
+        # Discover custom tools before building the system prompt so they
+        # are listed in it.
+        self.discovery_manager.discover_all()
+
         self.context_manager = ContextManager(
             config=self.config,
             user_memory=self._load_memory(),
             tools=self.tool_registry.get_tools(),
             git_context_str=git_context_str,
         )
-        self.discovery_manager.discover_all()
         return self
 
     def _load_memory(self) -> str | None:
@@ -94,7 +97,7 @@ class Session:
             "updated_at": self.updated_at.isoformat(),
             "turn_count": self.turn_count,
             "message_count": (
-                self.context_manager.get_message_count() if self.context_manager else 0
+                self.context_manager.get_message_count if self.context_manager else 0
             ),
             "token_usage": (
                 self.context_manager.get_total_usage if self.context_manager else None

@@ -79,6 +79,7 @@ class ResumeCommand(Command):
             return CommandResult(success=False, message=f"Session does not exist: {args}")
 
         session = Session(config=config)
+        session.approval_manager.confirmation_callback = agent._confirmation_callback
         await session.initialize()
         session.session_id = snapshot.session_id
         session.created_at = snapshot.created_at
@@ -160,6 +161,7 @@ class RestoreCommand(Command):
             return CommandResult(success=False, message=f"Checkpoint does not exist: {args}")
 
         session = Session(config=config)
+        session.approval_manager.confirmation_callback = agent._confirmation_callback
         await session.initialize()
         session.session_id = snapshot.session_id
         session.created_at = snapshot.created_at
