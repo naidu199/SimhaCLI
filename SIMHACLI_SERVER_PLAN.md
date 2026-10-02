@@ -1,7 +1,7 @@
 # SimhaCLI Server & VS Code Extension: Build Plan (Phase 1)
 
 **Branch:** `feat/simhacli-server`
-**Status:** M1 done; M2 complete (awaiting review); M3 next
+**Status:** M1–M2 done; M3 complete (awaiting review); M4 next
 
 Phase 1 brings SimhaCLI into VS Code as a sidebar chat panel. It runs the same agent as the CLI, with the same tools, approvals, saved chats, undo, config and API key. Phase 2 (inline code suggestions) is out of scope here.
 
@@ -133,11 +133,16 @@ vscode-extension/
     extension.ts            # activate / deactivate, command registration
     backend.ts              # spawn server, request/response matching, restart, Output channel
     protocol.ts             # TypeScript types for the server protocol (mirrors section 3)
+    controller.ts           # backend lifecycle per VS Code window, events for the panel
+    variables.ts            # ${workspaceFolder} / ${userHome} expansion in settings
     chatViewProvider.ts     # WebviewViewProvider, bridges panel ⇄ backend
     approvals.ts            # approval pop-ups + diff view
     webviewMessages.ts      # typed panel ⇄ extension message contract (design rule 5)
+    webview/
+      chat.ts               # panel script (bundled to dist/webview.js)
+      tsconfig.json         # DOM typings for the panel only
   media/
-    chat.html  chat.css  chat.ts
+    chat.css  simhacli.svg
   README.md
 ```
 
@@ -200,16 +205,24 @@ Additions beyond the original list:
 
 ### M3: Extension skeleton (TypeScript)
 
-- [ ] **M3.1** Scaffold `vscode-extension/`: `package.json`, `tsconfig.json`, esbuild bundling, `.vscodeignore`, F5 launch config
-- [ ] **M3.2** Activity-bar icon and `simhacli.chat` webview view
-- [ ] **M3.3** Settings `simhacli.command` (default `simhacli`) and `simhacli.args`
-- [ ] **M3.4** `protocol.ts`: types matching section 3
-- [ ] **M3.5** `backend.ts`: spawn the server, match requests to responses, Output channel for stderr and `server/log`
-- [ ] **M3.6** `backend.ts`: run `initialize` on start; restart with a user-visible notice if the process exits
-- [ ] **M3.7** `webviewMessages.ts`: typed panel ⇄ extension contract
-- [ ] **M3.8** Minimal panel: message box, Send, streamed assistant text
+- [x] **M3.1** Scaffold `vscode-extension/`: `package.json`, `tsconfig.json`, esbuild bundling, `.vscodeignore`, F5 launch config
+- [x] **M3.2** Activity-bar icon and `simhacli.chat` webview view
+- [x] **M3.3** Settings `simhacli.command` (default `simhacli`) and `simhacli.args`
+- [x] **M3.4** `protocol.ts`: types matching section 3
+- [x] **M3.5** `backend.ts`: spawn the server, match requests to responses, Output channel for stderr and `server/log`
+- [x] **M3.6** `backend.ts`: run `initialize` on start; restart with a user-visible notice if the process exits
+- [x] **M3.7** `webviewMessages.ts`: typed panel ⇄ extension contract
+- [x] **M3.8** Minimal panel: message box, Send, streamed assistant text
 
 **Done when:** in the F5 development window, sending a message streams a reply from the real configured model.
+
+**Result (2026-10-02):** automated tests (kept outside the repo) pass: backend 15/15 against the real `simhacli serve`, panel script 25/25 in jsdom, integration 14/14 inside a real VS Code window (panel ready in ~115 ms; no backend processes left after VS Code exits). The F5 check against the real model is the manual step for review.
+Additions beyond the original list:
+- Basic approval pop-ups (Approve / close = deny) are in M3, otherwise any tool needing approval would leave a turn hanging. M4.4 adds the diff view.
+- `controller.ts` owns the backend lifecycle (start per workspace folder, restart on settings or folder changes, crash notice); `backend.ts` stays free of the `vscode` API so it can be tested from plain Node.
+- `${workspaceFolder}` and `${userHome}` are expanded in `simhacli.command` / `simhacli.args` (VS Code doesn't do this for extension settings).
+- The extension declares it doesn't run in untrusted workspaces (it runs an agent that edits files and runs commands).
+- F5 setup lives in the repo's `.vscode/` (launch, build task, and settings pointing at this checkout's `main.py`); that folder is gitignored, so it stays local.
 
 ### M4: Extension features (TypeScript)
 
@@ -230,7 +243,7 @@ Additions beyond the original list:
 ### M5: Polish & packaging
 
 - [ ] **M5.1** Clear errors for: `simhacli` not found (with install hint), backend crash, protocol version mismatch
-- [ ] **M5.2** Extension `README.md`: install, settings, using a virtualenv's `simhacli`
+- [ ] **M5.2** Extension `README.md`: install, settings, using a virtualenv's `simhacli`; third-party notice for the activity-bar icon (built from Lucide icons, ISC License)
 - [ ] **M5.3** Build a `.vsix` file with `vsce package` and install it into everyday VS Code
 - [ ] **M5.4** Update `AGENTS.md`, `README.md` and `SIMHACLI.md` with `simhacli serve` and the extension
 - [ ] **M5.5** Windows check: spawning `simhacli.exe`, stdin reader thread, path handling
@@ -261,3 +274,5 @@ Additions beyond the original list:
 | 2026-10-02 | Transport: newline-delimited JSON over stdin/stdout |
 | 2026-10-02 | `tool_call_start` is emitted before a tool runs (agent change, benefits CLI and panel) |
 | 2026-10-02 | Serve mode redirects fd 0 to the null device and fd 1 to stderr at the OS level |
+| 2026-10-02 | Extension supports VS Code ≥ 1.90; disabled in untrusted workspaces |
+| 2026-10-02 | Test code and test-only dependencies stay outside the repo |

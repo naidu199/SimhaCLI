@@ -1,0 +1,91 @@
+{
+  "name": "simhacli",
+  "displayName": "SimhaCLI",
+  "description": "SimhaCLI AI coding agent in the VS Code sidebar",
+  "version": "0.1.0",
+  "publisher": "naidu199",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/naidu199/SimhaCLI"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "SimhaCLI runs an AI agent that can edit files and execute commands, so it only runs in trusted workspaces."
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "simhacli",
+          "title": "SimhaCLI",
+          "icon": "media/simhacli.svg"
+        }
+      ]
+    },
+    "views": {
+      "simhacli": [
+        {
+          "type": "webview",
+          "id": "simhacli.chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "simhacli.restartBackend",
+        "title": "Restart Backend",
+        "category": "SimhaCLI"
+      },
+      {
+        "command": "simhacli.showLogs",
+        "title": "Show Logs",
+        "category": "SimhaCLI"
+      }
+    ],
+    "configuration": {
+      "title": "SimhaCLI",
+      "properties": {
+        "simhacli.command": {
+          "type": "string",
+          "default": "simhacli",
+          "markdownDescription": "Command that starts SimhaCLI. Use a full path for a virtualenv install, e.g. `${workspaceFolder}/.venv/bin/simhacli`. `${workspaceFolder}` and `${userHome}` are expanded."
+        },
+        "simhacli.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra arguments placed before `serve`. For a source checkout: set `#simhacli.command#` to `python3` and this to `[\"${workspaceFolder}/main.py\"]`. `${workspaceFolder}` and `${userHome}` are expanded."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p src/webview/tsconfig.json --noEmit",
+    "vscode:prepublish": "npm run typecheck && node esbuild.mjs --production"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/vscode": "~1.90.0",
+    "esbuild": "^0.28.2",
+    "typescript": "~5.9.3"
+  }
+}
