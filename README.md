@@ -351,6 +351,12 @@ Options:
 
 ## 📝 Changelog
 
+### v1.5.3 (October 2, 2026)
+
+- **Config Saving**: Saving config now preserves existing TOML comments and has better error handling
+- **read_file**: Improved code extraction and display logic
+- **Windows**: Consistent console encoding configuration
+
 ### v1.5.2 (April 5, 2026)
 
 - **Image Attachments & Multimodal Messaging in Telegram Bot**: Send photos and get AI analysis with vision-capable models

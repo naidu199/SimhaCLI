@@ -25,7 +25,7 @@ try:
 
     __version__ = version("simhacli")
 except Exception:
-    __version__ = "1.5.2"
+    __version__ = "1.5.3"
 
 console = get_console()
 
