@@ -9,7 +9,7 @@ import type { ChatViewProvider } from "./chatViewProvider";
 import type { BackendController } from "./controller";
 import type { DiffContentProvider } from "./diffs";
 import { activeEditorAttachment } from "./editorContext";
-import { messageOf, pickApproval, pickCredentials, pickModel, pickRevert, pickSession } from "./pickers";
+import { messageOf, pickApproval, pickCredentials, pickModel, pickRevert } from "./pickers";
 
 export class ChatActions {
   constructor(
@@ -26,14 +26,32 @@ export class ChatActions {
     });
   }
 
+  /** Show saved chats inside the panel. */
   async showHistory(): Promise<void> {
     await this.run("open chat history", async () => {
-      const resumed = await pickSession(this.controller);
-      if (resumed) {
-        await this.chatView.reveal();
-        this.chatView.showTranscript(resumed.title, resumed.messages, resumed.warning);
-      }
+      await this.chatView.reveal();
+      const { sessions } = await this.controller.call("sessions/list", { limit: 200 });
+      this.chatView.showHistory(sessions);
     });
+  }
+
+  async resumeSession(id: string): Promise<void> {
+    await this.run("open the chat", async () => {
+      const result = await this.controller.call("sessions/resume", { id });
+      this.chatView.showTranscript(result.title, result.messages, result.warning);
+    });
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    await this.run("delete the chat", async () => {
+      await this.controller.call("sessions/delete", { id });
+      const { sessions } = await this.controller.call("sessions/list", { limit: 200 });
+      this.chatView.showHistory(sessions);
+    });
+  }
+
+  async setApproval(policy: string): Promise<void> {
+    await this.run("change the approval policy", () => this.controller.setApproval(policy));
   }
 
   /** Attach the active file or selection to the next message. */

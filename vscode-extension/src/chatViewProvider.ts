@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import type { ChatActions } from "./actions";
 import type { ApprovalCoordinator, ApprovalSurface } from "./approvals";
 import { BackendController, errorMessage } from "./controller";
-import type { ApprovalRequestParams, TranscriptMessage } from "./protocol";
+import type { ApprovalRequestParams, SessionSummary, TranscriptMessage } from "./protocol";
 import type { FromPanel, NoticeKind, PanelAttachment, ToPanel } from "./webviewMessages";
 
 const TITLE_LENGTH = 40;
@@ -138,6 +138,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ApprovalSur
     this.postUi({ type: "notice", text, kind });
   }
 
+  showHistory(sessions: SessionSummary[]): void {
+    this.postUi({ type: "history", sessions });
+  }
+
   dispose(): void {
     for (const disposable of this.disposables) {
       disposable.dispose();
@@ -205,6 +209,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ApprovalSur
       case "showHistory":
         await actions?.showHistory();
         break;
+      case "resumeSession":
+        await actions?.resumeSession(message.id);
+        break;
+      case "deleteSession":
+        await actions?.deleteSession(message.id);
+        break;
+      case "setApproval":
+        await actions?.setApproval(message.policy);
+        break;
     }
   }
 
@@ -257,27 +270,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ApprovalSur
 </head>
 <body>
   <div id="status" class="status" hidden></div>
-  <main id="messages" class="messages" aria-live="polite">
-    <div id="empty" class="empty">
-      <p class="empty-title">Ask SimhaCLI to read, change or run things in this workspace.</p>
-      <p>Attach the current file or selection with the paperclip, or type <code>@path</code> in your message.</p>
+  <section id="chatView" class="view">
+    <main id="messages" class="messages" aria-live="polite"></main>
+    <form id="composer" class="composer">
+      <div id="modeMenu" class="menu" role="menu" hidden></div>
+      <div class="composer-box">
+        <div id="attachments" class="attachments" hidden></div>
+        <textarea id="input" rows="1" placeholder="Ask SimhaCLI anything…" aria-label="Message"></textarea>
+        <div class="composer-toolbar">
+          <button id="attach" type="button" class="icon-button" title="Attach the current file or selection" aria-label="Attach the current file or selection"></button>
+          <button id="model" type="button" class="pill" title="Change model"></button>
+          <button id="mode" type="button" class="pill mode" title="Approval mode" aria-haspopup="menu"></button>
+          <span class="spacer"></span>
+          <button id="stop" type="button" class="send-button stop" title="Stop" aria-label="Stop" hidden></button>
+          <button id="send" type="submit" class="send-button" title="Send (Enter)" aria-label="Send"></button>
+        </div>
+      </div>
+      <div class="composer-hint">Enter to send · Shift+Enter new line · <code>@path</code> adds a file</div>
+    </form>
+  </section>
+  <section id="historyView" class="view history" hidden>
+    <header class="history-header">
+      <button id="historyBack" type="button" class="icon-button" title="Back to chat" aria-label="Back to chat"></button>
+      <span class="history-title">Chat history</span>
+    </header>
+    <div class="history-search">
+      <input id="historySearch" type="search" placeholder="Search chats" aria-label="Search chats">
     </div>
-  </main>
-  <form id="composer" class="composer">
-    <div id="attachments" class="attachments" hidden></div>
-    <textarea id="input" rows="3" placeholder="Ask SimhaCLI… (Enter to send, Shift+Enter for a new line)" aria-label="Message"></textarea>
-    <div class="composer-actions">
-      <button id="attach" type="button" class="icon" title="Attach the current file or selection" aria-label="Attach the current file or selection">
-        <!-- Lucide "paperclip" icon, https://lucide.dev, ISC License -->
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/></svg>
-      </button>
-      <button id="model" type="button" class="link" title="Change model"></button>
-      <button id="approval" type="button" class="link" title="Change approval policy"></button>
-      <span class="spacer"></span>
-      <button id="stop" type="button" class="secondary" hidden>Stop</button>
-      <button id="send" type="submit">Send</button>
-    </div>
-  </form>
+    <div id="historyList" class="history-list" role="list"></div>
+  </section>
   <script nonce="${nonce}" src="${script}"></script>
 </body>
 </html>`;

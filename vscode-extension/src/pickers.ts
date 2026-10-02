@@ -3,20 +3,11 @@
 import * as path from "path";
 import * as vscode from "vscode";
 
+import { APPROVAL_MODES } from "./approvalModes";
 import type { BackendController } from "./controller";
-import type { SessionSummary, TranscriptMessage, UndoChange } from "./protocol";
+import type { UndoChange } from "./protocol";
 
-// Matches safety/approval.py. Destructive commands (rm -rf /, etc.) are
-// refused under every policy except yolo.
-const APPROVAL_DESCRIPTIONS: Record<string, string> = {
-  on_request: "Ask for commands that aren't read-only and for risky file changes (default)",
-  auto_edit: "Currently the same as on_request",
-  always: "Ask before every tool that changes something",
-  on_failure: "Run commands without asking; still ask for risky file changes",
-  auto_approve: "Run commands without asking; still ask for risky file changes",
-  yolo: "Never ask, even for destructive commands",
-  never: "Never ask: block anything that would need approval (read-only commands still run)",
-};
+
 
 const PROVIDERS = [
   { label: "OpenRouter", url: "https://openrouter.ai/api/v1" },
@@ -54,81 +45,6 @@ export function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-interface SessionItem extends vscode.QuickPickItem {
-  session: SessionSummary;
-}
-
-export interface ResumedChat {
-  title: string | null;
-  messages: TranscriptMessage[];
-  warning?: string;
-}
-
-/** Pick a saved chat to continue. Resolves with the resumed chat, if any. */
-export async function pickSession(controller: BackendController): Promise<ResumedChat | undefined> {
-  const { sessions } = await controller.call("sessions/list", { limit: 200 });
-  if (sessions.length === 0) {
-    void vscode.window.showInformationMessage("No saved chats yet.");
-    return undefined;
-  }
-  const cwd = controller.currentState.cwd;
-  const deleteButton: vscode.QuickInputButton = {
-    iconPath: new vscode.ThemeIcon("trash"),
-    tooltip: "Delete this chat",
-  };
-  const toItem = (session: SessionSummary): SessionItem => ({
-    label: `${session.isCurrent ? "$(comment-discussion) " : ""}${session.title ?? "(no messages)"}`,
-    description: `${relativeTime(session.updatedAt)} · ${session.messageCount} messages${
-      session.source && session.source !== "cli" ? ` · ${session.source}` : ""
-    }`,
-    detail: session.cwd && session.cwd !== cwd ? session.cwd : undefined,
-    buttons: session.isCurrent ? [] : [deleteButton],
-    session,
-  });
-
-  const quickPick = vscode.window.createQuickPick<SessionItem>();
-  quickPick.title = "SimhaCLI: Chat History";
-  quickPick.placeholder = "Pick a chat to continue it";
-  quickPick.matchOnDescription = true;
-  quickPick.items = sessions.map(toItem);
-
-  return new Promise<ResumedChat | undefined>((resolve) => {
-    let settled = false;
-    const finish = (value: ResumedChat | undefined) => {
-      if (!settled) {
-        settled = true;
-        resolve(value);
-        quickPick.dispose();
-      }
-    };
-    quickPick.onDidTriggerItemButton(async ({ item }) => {
-      try {
-        await controller.call("sessions/delete", { id: item.session.id });
-        quickPick.items = quickPick.items.filter((i) => i.session.id !== item.session.id);
-      } catch (error) {
-        void vscode.window.showErrorMessage(`Couldn't delete the chat: ${messageOf(error)}`);
-      }
-    });
-    quickPick.onDidAccept(async () => {
-      const item = quickPick.selectedItems[0];
-      if (!item || item.session.isCurrent) {
-        finish(undefined);
-        return;
-      }
-      quickPick.busy = true;
-      try {
-        const result = await controller.call("sessions/resume", { id: item.session.id });
-        finish({ title: result.title, messages: result.messages, warning: result.warning });
-      } catch (error) {
-        quickPick.busy = false;
-        void vscode.window.showErrorMessage(`Couldn't open the chat: ${messageOf(error)}`);
-      }
-    });
-    quickPick.onDidHide(() => finish(undefined));
-    quickPick.show();
-  });
-}
-
 export async function pickModel(controller: BackendController): Promise<void> {
   const current = controller.currentState.model ?? "";
   const name = await vscode.window.showInputBox({
@@ -144,10 +60,10 @@ export async function pickModel(controller: BackendController): Promise<void> {
 
 export async function pickApproval(controller: BackendController): Promise<void> {
   const config = await controller.getConfig();
-  const items = config.approvalPolicies.map((policy) => ({
-    label: policy === config.approval ? `$(check) ${policy}` : policy,
-    description: APPROVAL_DESCRIPTIONS[policy] ?? "",
-    policy,
+  const items = APPROVAL_MODES.filter((mode) => config.approvalPolicies.includes(mode.policy)).map((mode) => ({
+    label: `${mode.policy === config.approval ? "$(check) " : ""}${mode.label}`,
+    description: mode.description,
+    policy: mode.policy,
   }));
   const choice = await vscode.window.showQuickPick(items, {
     title: "SimhaCLI: Approval Policy",

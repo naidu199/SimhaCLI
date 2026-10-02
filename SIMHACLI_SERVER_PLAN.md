@@ -252,6 +252,7 @@ Changes from the original list:
 - New Chat and History are view-title buttons; Change Model / Approval / API Key, Restart and Logs are in the view's `…` menu; Ask About Selection / Add Current File are in the editor context menu.
 - Markdown uses markdown-it with raw HTML disabled (model output can't inject markup or `javascript:` links); code blocks use highlight.js colored with theme variables.
 - Fixed: paths shown absolute (e.g. `/private/var/...`) when the workspace is reached through a symlink; paths are now made relative to the backend's resolved cwd.
+- **UI redesign (after review):** welcome screen with suggestions; your messages as right-aligned bubbles and one grouped block per SimhaCLI reply; tool rows with readable labels ("Read app.py", "Run npm test"); a single composer box with model and mode chips; approval modes colored by risk (green: Always ask / Never run, blue: Ask / Auto-edit, orange: On failure / Auto-approve, red: YOLO) with an in-panel mode menu; chat history inside the panel (grouped by date, search, delete with confirmation). Verified with panel tests 50/50, integration 20/20, and screenshots in dark and light themes.
 
 ### M5: Polish & packaging
 

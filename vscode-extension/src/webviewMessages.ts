@@ -5,6 +5,7 @@
 import type {
   AgentEventType,
   ApprovalRequestParams,
+  SessionSummary,
   TranscriptMessage,
   TurnStatus,
 } from "./protocol";
@@ -47,7 +48,8 @@ export type ToPanel =
   | { type: "focusInput" }
   | { type: "loadTranscript"; title: string | null; messages: TranscriptMessage[]; warning?: string }
   | { type: "cleared" }
-  | { type: "notice"; text: string; kind: NoticeKind };
+  | { type: "notice"; text: string; kind: NoticeKind }
+  | { type: "history"; sessions: SessionSummary[] };
 
 /** Panel → extension. */
 export type FromPanel =
@@ -66,4 +68,7 @@ export type FromPanel =
   | { type: "setCredentials" }
   | { type: "revertChanges" }
   | { type: "newChat" }
-  | { type: "showHistory" };
+  | { type: "showHistory" }
+  | { type: "resumeSession"; id: string }
+  | { type: "deleteSession"; id: string }
+  | { type: "setApproval"; policy: string };
