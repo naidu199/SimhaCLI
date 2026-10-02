@@ -5,17 +5,23 @@
 import * as os from "os";
 import * as vscode from "vscode";
 
-import { askApproval } from "./approvals";
+import { askApprovalModal } from "./approvals";
 import { Backend, BackendError, BackendExit } from "./backend";
 import {
   AgentEventParams,
   ApprovalRequestParams,
+  Attachment,
+  ConfigResult,
+  MethodName,
+  Methods,
   PROTOCOL_VERSION,
   ServerLogParams,
   TurnFinishedParams,
 } from "./protocol";
 import { expandVariables } from "./variables";
 import type { PanelState } from "./webviewMessages";
+
+export type ApprovalHandler = (request: ApprovalRequestParams) => Promise<boolean>;
 
 const INSTALL_HINT =
   "Install SimhaCLI (pip install simhacli) or set the simhacli.command setting to its full path.";
@@ -24,6 +30,7 @@ export class BackendController implements vscode.Disposable {
   private backend: Backend | undefined;
   private state: PanelState = { status: "starting" };
   private readonly disposables: vscode.Disposable[] = [];
+  private approvalHandler: ApprovalHandler = askApprovalModal;
 
   private readonly stateEmitter = new vscode.EventEmitter<PanelState>();
   private readonly agentEventEmitter = new vscode.EventEmitter<AgentEventParams>();
@@ -78,7 +85,7 @@ export class BackendController implements vscode.Disposable {
     backend.onExit((exit) => this.handleExit(backend, exit));
     backend.setRequestHandler(async (method, params) => {
       if (method === "approval/request") {
-        return { approved: await askApproval(params as ApprovalRequestParams) };
+        return { approved: await this.approvalHandler(params as ApprovalRequestParams) };
       }
       throw new Error(`Unsupported request: ${method}`);
     });
@@ -131,15 +138,44 @@ export class BackendController implements vscode.Disposable {
     await this.start();
   }
 
+  /** Decide how approval requests are answered (defaults to a modal dialog). */
+  setApprovalHandler(handler: ApprovalHandler): void {
+    this.approvalHandler = handler;
+  }
+
   /** Start a turn. Resolves with its id; rejects with a user-facing error. */
-  async send(text: string): Promise<string> {
-    const backend = this.backend;
-    if (!backend || this.state.status !== "ready") {
-      throw new BackendError(this.state.detail ?? "SimhaCLI is not ready yet");
-    }
-    const { turnId } = await backend.request("chat/send", { text });
+  async send(text: string, attachments: Attachment[] = []): Promise<string> {
+    const { turnId } = await this.call("chat/send", attachments.length ? { text, attachments } : { text });
     this.setState({ ...this.state, turnId });
     return turnId;
+  }
+
+  /** Any protocol request; rejects with a user-facing error if not ready. */
+  call<M extends MethodName>(method: M, params: Methods[M][0]): Promise<Methods[M][1]> {
+    const backend = this.backend;
+    if (!backend || this.state.status !== "ready") {
+      return Promise.reject(new BackendError(this.state.detail ?? "SimhaCLI is not ready yet"));
+    }
+    return backend.request(method, params);
+  }
+
+  async getConfig(): Promise<ConfigResult> {
+    return this.call("config/get", {});
+  }
+
+  async setModel(name: string): Promise<void> {
+    const result = await this.call("model/set", { name });
+    this.setState({ ...this.state, model: result.model });
+  }
+
+  async setApproval(policy: string): Promise<void> {
+    const result = await this.call("approval/set", { policy });
+    this.setState({ ...this.state, approval: result.approval });
+  }
+
+  async setCredentials(apiKey: string | undefined, baseUrl: string | undefined): Promise<void> {
+    const result = await this.call("credentials/set", { apiKey, baseUrl });
+    this.setState({ ...this.state, needsCredentials: result.needsCredentials });
   }
 
   async cancel(): Promise<void> {

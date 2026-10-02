@@ -1,7 +1,9 @@
 // Chat panel script (runs inside the webview).
 // Talks to the extension only through the messages in webviewMessages.ts.
 
-import type { FromPanel, PanelState, ToPanel } from "../webviewMessages";
+import type { ApprovalRequestParams, TranscriptMessage } from "../protocol";
+import type { FromPanel, NoticeKind, PanelAttachment, PanelState, ToPanel } from "../webviewMessages";
+import { renderMarkdown } from "./markdown";
 
 interface VsCodeApi {
   postMessage(message: FromPanel): void;
@@ -9,6 +11,8 @@ interface VsCodeApi {
 declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
+
+const OUTPUT_PREVIEW_CHARS = 4000;
 
 function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -20,29 +24,61 @@ function byId<T extends HTMLElement>(id: string): T {
 
 const statusEl = byId<HTMLDivElement>("status");
 const messagesEl = byId<HTMLElement>("messages");
+const emptyEl = byId<HTMLDivElement>("empty");
 const composer = byId<HTMLFormElement>("composer");
+const attachmentsEl = byId<HTMLDivElement>("attachments");
 const input = byId<HTMLTextAreaElement>("input");
 const sendButton = byId<HTMLButtonElement>("send");
 const stopButton = byId<HTMLButtonElement>("stop");
-const metaEl = byId<HTMLSpanElement>("meta");
+const attachButton = byId<HTMLButtonElement>("attach");
+const modelButton = byId<HTMLButtonElement>("model");
+const approvalButton = byId<HTMLButtonElement>("approval");
 
 let state: PanelState = { status: "starting" };
 let currentTurn: string | null = null;
-let assistantText: HTMLElement | null = null;
-let thinkingRow: HTMLElement | null = null;
+let attachments: PanelAttachment[] = [];
+/** Attachments of the last sent message, restored if sending fails. */
+let lastSentAttachments: PanelAttachment[] = [];
+
+// Per-turn rendering state
+let assistantEl: HTMLElement | null = null;
+let assistantRaw = "";
+let renderScheduled = false;
+let thinkingEl: HTMLDetailsElement | null = null;
+let thinkingStarted = 0;
 let turnErrorShown = false;
-const toolRows = new Map<string, HTMLElement>();
+const toolRows = new Map<string, HTMLDetailsElement>();
+const approvalCards = new Map<string, HTMLElement>();
 
 // ---------------------------------------------------------------------------
-// Rendering helpers
+// DOM helpers
 // ---------------------------------------------------------------------------
+
+function el<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  className = "",
+  text?: string,
+): HTMLElementTagNameMap[K] {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text !== undefined) element.textContent = text;
+  return element;
+}
+
+function button(label: string, className: string, onClick: () => void): HTMLButtonElement {
+  const b = el("button", className, label);
+  b.type = "button";
+  b.addEventListener("click", onClick);
+  return b;
+}
 
 function isNearBottom(): boolean {
   return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
 }
 
-function append(element: HTMLElement): HTMLElement {
+function append<T extends HTMLElement>(element: T): T {
   const stick = isNearBottom();
+  emptyEl.hidden = true;
   messagesEl.append(element);
   if (stick) {
     messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -50,177 +86,369 @@ function append(element: HTMLElement): HTMLElement {
   return element;
 }
 
-function block(className: string, text = ""): HTMLElement {
-  const element = document.createElement("div");
-  element.className = className;
-  element.textContent = text;
-  return element;
+function addUserMessage(text: string, labels: string[] = []): void {
+  const wrapper = el("div", "message user");
+  wrapper.append(el("div", "role", "You"));
+  wrapper.append(el("div", "text", text));
+  if (labels.length) {
+    const chips = el("div", "sent-attachments");
+    for (const label of labels) chips.append(el("span", "chip", label));
+    wrapper.append(chips);
+  }
+  append(wrapper);
 }
 
-function addMessage(role: "user" | "assistant", text: string): HTMLElement {
-  const wrapper = block(`message ${role}`);
-  wrapper.append(block("role", role === "user" ? "You" : "SimhaCLI"));
-  const body = block("text", text);
+function addAssistantBlock(): HTMLElement {
+  const wrapper = el("div", "message assistant");
+  wrapper.append(el("div", "role", "SimhaCLI"));
+  const body = el("div", "markdown");
   wrapper.append(body);
   append(wrapper);
   return body;
 }
 
-function addNotice(text: string, kind: "info" | "error" = "info"): void {
-  append(block(`notice ${kind}`, text));
+function addNotice(text: string, kind: NoticeKind = "info"): HTMLElement {
+  return append(el("div", `notice ${kind}`, text));
+}
+
+function shorten(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 function argsSummary(args: unknown): string {
   if (!args || typeof args !== "object") {
-    return "";
+    return typeof args === "string" ? shorten(args, 80) : "";
   }
   const entries = Object.entries(args as Record<string, unknown>);
-  const preferred = entries.find(([key]) => ["path", "command", "pattern", "url", "query", "goal"].includes(key));
+  const preferred = entries.find(([key]) =>
+    ["path", "command", "pattern", "url", "query", "goal", "action"].includes(key),
+  );
   const [key, value] = preferred ?? entries[0] ?? [];
   if (key === undefined) {
     return "";
   }
-  const text = typeof value === "string" ? value : JSON.stringify(value);
-  return text.length > 80 ? `${text.slice(0, 77)}…` : text;
+  return shorten(typeof value === "string" ? value : JSON.stringify(value), 80);
+}
+
+function diffBlock(diff: string): HTMLElement {
+  const pre = el("pre", "diff");
+  for (const line of diff.replace(/\n$/, "").split("\n")) {
+    const kind = line.startsWith("+++") || line.startsWith("---")
+      ? "meta"
+      : line.startsWith("+")
+        ? "add"
+        : line.startsWith("-")
+          ? "del"
+          : line.startsWith("@@")
+            ? "hunk"
+            : "";
+    pre.append(el("span", `diff-line ${kind}`, `${line}\n`));
+  }
+  return pre;
+}
+
+function section(title: string, content: HTMLElement): HTMLElement {
+  const wrapper = el("div", "tool-section");
+  wrapper.append(el("div", "tool-section-title", title), content);
+  return wrapper;
+}
+
+// ---------------------------------------------------------------------------
+// Assistant text (markdown, re-rendered at most once per frame while streaming)
+// ---------------------------------------------------------------------------
+
+function renderAssistant(): void {
+  renderScheduled = false;
+  if (!assistantEl) return;
+  const stick = isNearBottom();
+  assistantEl.innerHTML = renderMarkdown(assistantRaw);
+  if (stick) messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function scheduleRender(): void {
+  if (!renderScheduled) {
+    renderScheduled = true;
+    requestAnimationFrame(renderAssistant);
+  }
 }
 
 function endAssistantText(): void {
-  assistantText = null;
-}
-
-function clearThinking(): void {
-  thinkingRow?.remove();
-  thinkingRow = null;
+  if (assistantEl) renderAssistant();
+  assistantEl = null;
+  assistantRaw = "";
 }
 
 // ---------------------------------------------------------------------------
-// State
+// Thinking and tools
+// ---------------------------------------------------------------------------
+
+function thinkingDelta(text: string): void {
+  if (!thinkingEl) {
+    thinkingEl = el("details", "thinking");
+    thinkingEl.append(el("summary", "", "Thinking…"), el("div", "thinking-text"));
+    thinkingStarted = Date.now();
+    append(thinkingEl);
+  }
+  thinkingEl.querySelector(".thinking-text")!.textContent += text;
+}
+
+function endThinking(): void {
+  if (thinkingEl) {
+    const seconds = Math.max(1, Math.round((Date.now() - thinkingStarted) / 1000));
+    thinkingEl.querySelector("summary")!.textContent = `Thought for ${seconds}s`;
+  }
+  thinkingEl = null;
+}
+
+function toolRow(name: string, args: unknown, status: string): HTMLDetailsElement {
+  const row = el("details", `tool ${status}`);
+  const summary = el("summary");
+  summary.append(el("span", "tool-icon"), el("span", "tool-name", name), el("span", "tool-args", argsSummary(args)));
+  row.append(summary);
+  const body = el("div", "tool-body");
+  if (args && typeof args === "object" && Object.keys(args).length) {
+    body.append(section("Arguments", el("pre", "", JSON.stringify(args, null, 2))));
+  }
+  row.append(body);
+  return row;
+}
+
+function toolStart(data: Record<string, unknown>): void {
+  endThinking();
+  endAssistantText();
+  const row = toolRow(String(data.name ?? "tool"), data.arguments, "running");
+  toolRows.set(String(data.call_id), append(row));
+}
+
+function toolComplete(data: Record<string, unknown>): void {
+  let row = toolRows.get(String(data.call_id));
+  if (!row) {
+    row = append(toolRow(String(data.name ?? "tool"), data.arguments, "running"));
+  }
+  const ok = data.success === true;
+  row.classList.remove("running");
+  row.classList.add(ok ? "ok" : "failed");
+  const body = row.querySelector(".tool-body")!;
+  if (typeof data.diff === "string" && data.diff) {
+    body.append(section("Changes", diffBlock(data.diff)));
+  } else if (typeof data.output === "string" && data.output.trim()) {
+    const output = data.output.length > OUTPUT_PREVIEW_CHARS
+      ? `${data.output.slice(0, OUTPUT_PREVIEW_CHARS)}\n… (${data.output.length - OUTPUT_PREVIEW_CHARS} more characters)`
+      : data.output;
+    body.append(section("Output", el("pre", "", output)));
+  }
+  if (!ok && data.error) {
+    body.append(el("div", "tool-error", String(data.error)));
+    row.querySelector("summary")!.append(el("span", "tool-error-inline", shorten(String(data.error), 60)));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Approvals
+// ---------------------------------------------------------------------------
+
+function showApproval(id: string, request: ApprovalRequestParams): void {
+  endThinking();
+  endAssistantText();
+  const card = el("div", `approval${request.isDangerous ? " dangerous" : ""}`);
+  card.append(el("div", "approval-title", `Allow ${request.tool}?`));
+  card.append(el("div", "approval-description", request.description));
+  if (request.command) {
+    card.append(el("pre", "approval-command", request.command));
+  }
+  if (request.paths.length) {
+    card.append(el("div", "approval-paths", request.paths.join("\n")));
+  }
+  if (request.isDangerous) {
+    card.append(el("div", "approval-warning", "SimhaCLI flagged this as potentially destructive."));
+  }
+  const actions = el("div", "approval-actions");
+  const approve = button("Approve", "", () => answer(id, true));
+  actions.append(approve, button("Deny", "secondary", () => answer(id, false)));
+  if (request.fileChange) {
+    actions.append(button("View diff", "secondary", () => vscode.postMessage({ type: "viewDiff", id })));
+  }
+  card.append(actions);
+  approvalCards.set(id, append(card));
+  approve.focus();
+}
+
+function answer(id: string, approved: boolean): void {
+  vscode.postMessage({ type: "approvalResponse", id, approved });
+  resolveApproval(id, approved);
+}
+
+function resolveApproval(id: string, approved: boolean, reason?: string): void {
+  const card = approvalCards.get(id);
+  if (!card) return;
+  approvalCards.delete(id);
+  card.querySelector(".approval-actions")?.remove();
+  card.classList.add("resolved");
+  card.append(el("div", "approval-result", reason === "cancelled" ? "Cancelled" : approved ? "Approved" : "Denied"));
+}
+
+// ---------------------------------------------------------------------------
+// History
+// ---------------------------------------------------------------------------
+
+function clearMessages(): void {
+  for (const child of [...messagesEl.children]) {
+    if (child !== emptyEl) child.remove();
+  }
+  emptyEl.hidden = false;
+  toolRows.clear();
+  approvalCards.clear();
+  assistantEl = null;
+  assistantRaw = "";
+  thinkingEl = null;
+}
+
+function loadTranscript(messages: TranscriptMessage[], warning?: string): void {
+  clearMessages();
+  for (const message of messages) {
+    if (message.role === "user") {
+      addUserMessage(message.text);
+      continue;
+    }
+    if (message.text) {
+      addAssistantBlock().innerHTML = renderMarkdown(message.text);
+    }
+    for (const call of message.toolCalls) {
+      append(toolRow(call.name, call.arguments, "history"));
+    }
+  }
+  addNotice(warning ? `Continuing this chat. ${warning}` : "Continuing this chat.");
+}
+
+// ---------------------------------------------------------------------------
+// State and composer
 // ---------------------------------------------------------------------------
 
 function renderState(): void {
-  const lines: string[] = [];
-  let kind = "info";
-  let actions = false;
+  let text = "";
+  let kind: NoticeKind = "info";
+  const actions: HTMLButtonElement[] = [];
 
   switch (state.status) {
     case "starting":
-      lines.push(state.detail ?? "Starting SimhaCLI…");
+      text = state.detail ?? "Starting SimhaCLI…";
       break;
     case "noWorkspace":
-      lines.push(state.detail ?? "Open a folder to use SimhaCLI.");
+      text = state.detail ?? "Open a folder to use SimhaCLI.";
       break;
     case "stopped":
-      lines.push(state.detail ?? "SimhaCLI is not running.");
+      text = state.detail ?? "SimhaCLI is not running.";
       kind = "error";
-      actions = true;
+      actions.push(
+        button("Restart backend", "", () => vscode.postMessage({ type: "restartBackend" })),
+        button("Show logs", "secondary", () => vscode.postMessage({ type: "showLogs" })),
+      );
       break;
     case "ready":
       if (state.needsCredentials) {
-        lines.push("No API key is configured. Run `simhacli` in a terminal and use /credentials, then restart the backend.");
+        text = "No API key is configured yet.";
         kind = "error";
-        actions = true;
+        actions.push(button("Set API key", "", () => vscode.postMessage({ type: "setCredentials" })));
       } else if (state.detail) {
-        lines.push(state.detail);
+        text = state.detail;
         kind = "error";
       }
       break;
   }
 
   statusEl.replaceChildren();
-  statusEl.hidden = lines.length === 0;
+  statusEl.hidden = !text;
   statusEl.className = `status ${kind}`;
-  if (lines.length > 0) {
-    statusEl.append(block("status-text", lines.join("\n")));
-  }
-  if (actions) {
-    const row = block("status-actions");
-    const restart = document.createElement("button");
-    restart.textContent = "Restart backend";
-    restart.addEventListener("click", () => vscode.postMessage({ type: "restartBackend" }));
-    const logs = document.createElement("button");
-    logs.textContent = "Show logs";
-    logs.className = "secondary";
-    logs.addEventListener("click", () => vscode.postMessage({ type: "showLogs" }));
-    row.append(restart, logs);
-    statusEl.append(row);
+  if (text) {
+    statusEl.append(el("div", "status-text", text));
+    if (actions.length) {
+      const row = el("div", "status-actions");
+      row.append(...actions);
+      statusEl.append(row);
+    }
   }
 
-  const parts = [state.model, state.approval].filter(Boolean);
-  metaEl.textContent = parts.join(" · ");
+  const ready = state.status === "ready";
+  modelButton.textContent = state.model ?? "";
+  modelButton.hidden = !ready || !state.model;
+  approvalButton.textContent = state.approval ? `approval: ${state.approval}` : "";
+  approvalButton.hidden = !ready || !state.approval;
   updateButtons();
 }
 
 function updateButtons(): void {
   const running = Boolean(state.turnId) || currentTurn !== null;
-  const canSend = state.status === "ready" && !state.needsCredentials && !running;
-  sendButton.disabled = !canSend || input.value.trim() === "";
+  const ready = state.status === "ready" && !state.needsCredentials;
+  sendButton.disabled = !ready || running || input.value.trim() === "";
   stopButton.hidden = !running;
+  attachButton.disabled = state.status !== "ready";
+}
+
+function renderAttachments(): void {
+  attachmentsEl.replaceChildren();
+  attachmentsEl.hidden = attachments.length === 0;
+  attachments.forEach((attachment, index) => {
+    const chip = el("span", "chip", attachment.label);
+    chip.title = attachment.path;
+    const remove = button("×", "chip-remove", () => {
+      attachments.splice(index, 1);
+      renderAttachments();
+    });
+    remove.setAttribute("aria-label", `Remove ${attachment.label}`);
+    chip.append(remove);
+    attachmentsEl.append(chip);
+  });
+}
+
+function addAttachment(attachment: PanelAttachment): void {
+  const duplicate = attachments.some(
+    (a) => a.path === attachment.path && a.startLine === attachment.startLine && a.endLine === attachment.endLine,
+  );
+  if (!duplicate) {
+    attachments.push(attachment);
+    renderAttachments();
+  }
+}
+
+function startTurn(turnId: string): void {
+  if (currentTurn === turnId) return;
+  currentTurn = turnId;
+  assistantEl = null;
+  assistantRaw = "";
+  turnErrorShown = false;
+  toolRows.clear();
 }
 
 // ---------------------------------------------------------------------------
 // Messages from the extension
 // ---------------------------------------------------------------------------
 
-function startTurn(turnId: string): void {
-  if (currentTurn === turnId) {
-    return;
-  }
-  currentTurn = turnId;
-  assistantText = null;
-  turnErrorShown = false;
-  toolRows.clear();
-}
-
 function handleAgentEvent(turnId: string, event: string, data: Record<string, unknown>): void {
   startTurn(turnId);
   switch (event) {
-    case "text_delta": {
-      clearThinking();
-      if (!assistantText) {
-        assistantText = addMessage("assistant", "");
-      }
-      const stick = isNearBottom();
-      assistantText.textContent += String(data.content ?? "");
-      if (stick) {
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-      }
+    case "text_delta":
+      endThinking();
+      if (!assistantEl) assistantEl = addAssistantBlock();
+      assistantRaw += String(data.content ?? "");
+      scheduleRender();
       break;
-    }
     case "text_complete":
       endAssistantText();
       break;
     case "thinking_delta":
-      if (!thinkingRow) {
-        thinkingRow = append(block("thinking", "Thinking…"));
-      }
+      thinkingDelta(String(data.content ?? ""));
       break;
     case "thinking_complete":
-      clearThinking();
+      endThinking();
       break;
-    case "tool_call_start": {
-      clearThinking();
-      endAssistantText();
-      const row = block("tool running");
-      row.append(block("tool-name", String(data.name ?? "tool")), block("tool-args", argsSummary(data.arguments)));
-      toolRows.set(String(data.call_id), append(row));
+    case "tool_call_start":
+      toolStart(data);
       break;
-    }
-    case "tool_call_complete": {
-      const row = toolRows.get(String(data.call_id));
-      const ok = data.success === true;
-      if (row) {
-        row.classList.remove("running");
-        row.classList.add(ok ? "ok" : "failed");
-        if (!ok && data.error) {
-          row.append(block("tool-error", String(data.error)));
-        }
-      } else {
-        addNotice(`${String(data.name ?? "tool")} ${ok ? "finished" : `failed: ${String(data.error ?? "")}`}`, ok ? "info" : "error");
-      }
+    case "tool_call_complete":
+      toolComplete(data);
       break;
-    }
     case "agent_error":
-      clearThinking();
+      endThinking();
       turnErrorShown = true;
       addNotice(String(data.message ?? "Something went wrong"), "error");
       break;
@@ -230,74 +458,116 @@ function handleAgentEvent(turnId: string, event: string, data: Record<string, un
   }
 }
 
+function finishTurn(status: string, error: string | undefined, undoCount: number): void {
+  endThinking();
+  endAssistantText();
+  if (status === "cancelled") {
+    addNotice("Stopped.");
+  } else if (status === "error" && error && !turnErrorShown) {
+    addNotice(error, "error");
+  }
+  if (undoCount > 0) {
+    const notice = addNotice(`${undoCount} file${undoCount === 1 ? "" : "s"} changed.`);
+    notice.append(" ", button("Revert…", "link", () => vscode.postMessage({ type: "revertChanges" })));
+  }
+  currentTurn = null;
+}
+
 window.addEventListener("message", (event: MessageEvent<ToPanel>) => {
   const message = event.data;
   switch (message.type) {
     case "state":
       state = message.state;
       renderState();
-      break;
+      return;
     case "turnStarted":
       startTurn(message.turnId);
-      updateButtons();
       break;
     case "sendFailed":
       addNotice(`Not sent: ${message.message}`, "error");
-      if (!input.value.trim()) {
-        input.value = message.text;
+      if (!input.value.trim()) input.value = message.text;
+      if (attachments.length === 0 && lastSentAttachments.length) {
+        attachments = lastSentAttachments;
+        renderAttachments();
       }
-      updateButtons();
       break;
     case "agentEvent":
       handleAgentEvent(message.turnId, message.event, message.data);
-      updateButtons();
       break;
     case "turnFinished":
-      clearThinking();
-      if (message.status === "cancelled") {
-        addNotice("Stopped.");
-      } else if (message.status === "error" && message.error && !turnErrorShown) {
-        addNotice(message.error, "error");
-      }
-      if (message.undoCount > 0) {
-        addNotice(`${message.undoCount} file${message.undoCount === 1 ? "" : "s"} changed.`);
-      }
-      currentTurn = null;
-      assistantText = null;
-      updateButtons();
+      finishTurn(message.status, message.error, message.undoCount);
       break;
+    case "approvalRequest":
+      showApproval(message.id, message.request);
+      break;
+    case "approvalResolved":
+      resolveApproval(message.id, message.approved, message.reason);
+      break;
+    case "addAttachment":
+      addAttachment(message.attachment);
+      break;
+    case "focusInput":
+      input.focus();
+      break;
+    case "loadTranscript":
+      loadTranscript(message.messages, message.warning);
+      break;
+    case "cleared":
+      clearMessages();
+      break;
+    case "notice":
+      addNotice(message.text, message.kind);
+      break;
+  }
+  updateButtons();
+});
+
+// Copy buttons and links inside rendered replies
+messagesEl.addEventListener("click", (event) => {
+  const target = event.target as HTMLElement;
+  const copy = target.closest(".code-copy");
+  if (copy) {
+    const code = copy.closest(".code-block")?.querySelector("code")?.textContent ?? "";
+    vscode.postMessage({ type: "copy", text: code });
+    copy.textContent = "Copied";
+    setTimeout(() => (copy.textContent = "Copy"), 1500);
+    return;
+  }
+  const link = target.closest("a");
+  if (link) {
+    event.preventDefault();
+    const href = link.getAttribute("data-href") ?? link.getAttribute("href");
+    if (href) vscode.postMessage({ type: "openLink", href });
   }
 });
 
-// ---------------------------------------------------------------------------
-// Composer
-// ---------------------------------------------------------------------------
-
 function submit(): void {
   const text = input.value.trim();
-  if (!text || sendButton.disabled) {
-    return;
-  }
-  addMessage("user", text);
+  if (!text || sendButton.disabled) return;
+  addUserMessage(text, attachments.map((a) => a.label));
+  vscode.postMessage({ type: "send", text, attachments });
   input.value = "";
+  lastSentAttachments = attachments;
+  attachments = [];
+  renderAttachments();
   sendButton.disabled = true;
-  vscode.postMessage({ type: "send", text });
 }
 
 composer.addEventListener("submit", (event) => {
   event.preventDefault();
   submit();
 });
-
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     submit();
   }
 });
-
 input.addEventListener("input", updateButtons);
 stopButton.addEventListener("click", () => vscode.postMessage({ type: "cancel" }));
+attachButton.addEventListener("click", () => vscode.postMessage({ type: "attachActiveEditor" }));
+modelButton.addEventListener("click", () => vscode.postMessage({ type: "pickModel" }));
+approvalButton.addEventListener("click", () => vscode.postMessage({ type: "pickApproval" }));
 
 renderState();
 vscode.postMessage({ type: "ready" });

@@ -47,6 +47,48 @@
     },
     "commands": [
       {
+        "command": "simhacli.newChat",
+        "title": "New Chat",
+        "category": "SimhaCLI",
+        "icon": "$(add)"
+      },
+      {
+        "command": "simhacli.history",
+        "title": "Chat History",
+        "category": "SimhaCLI",
+        "icon": "$(history)"
+      },
+      {
+        "command": "simhacli.askAboutSelection",
+        "title": "Ask About Selection",
+        "category": "SimhaCLI"
+      },
+      {
+        "command": "simhacli.addFileToChat",
+        "title": "Add Current File to Chat",
+        "category": "SimhaCLI"
+      },
+      {
+        "command": "simhacli.changeModel",
+        "title": "Change Model",
+        "category": "SimhaCLI"
+      },
+      {
+        "command": "simhacli.changeApproval",
+        "title": "Change Approval Policy",
+        "category": "SimhaCLI"
+      },
+      {
+        "command": "simhacli.setCredentials",
+        "title": "Set API Key and Provider",
+        "category": "SimhaCLI"
+      },
+      {
+        "command": "simhacli.revertChanges",
+        "title": "Revert Changes from Latest Reply",
+        "category": "SimhaCLI"
+      },
+      {
         "command": "simhacli.restartBackend",
         "title": "Restart Backend",
         "category": "SimhaCLI"
@@ -74,6 +116,63 @@
           "markdownDescription": "Extra arguments placed before `serve`. For a source checkout: set `#simhacli.command#` to `python3` and this to `[\"${workspaceFolder}/main.py\"]`. `${workspaceFolder}` and `${userHome}` are expanded."
         }
       }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "simhacli.newChat",
+          "when": "view == simhacli.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "simhacli.history",
+          "when": "view == simhacli.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "simhacli.changeModel",
+          "when": "view == simhacli.chat",
+          "group": "settings@1"
+        },
+        {
+          "command": "simhacli.changeApproval",
+          "when": "view == simhacli.chat",
+          "group": "settings@2"
+        },
+        {
+          "command": "simhacli.setCredentials",
+          "when": "view == simhacli.chat",
+          "group": "settings@3"
+        },
+        {
+          "command": "simhacli.restartBackend",
+          "when": "view == simhacli.chat",
+          "group": "backend@1"
+        },
+        {
+          "command": "simhacli.showLogs",
+          "when": "view == simhacli.chat",
+          "group": "backend@2"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "simhacli.askAboutSelection",
+          "when": "editorHasSelection && resourceScheme == file",
+          "group": "simhacli@1"
+        },
+        {
+          "command": "simhacli.addFileToChat",
+          "when": "!editorHasSelection && resourceScheme == file",
+          "group": "simhacli@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "simhacli.askAboutSelection",
+          "when": "editorHasSelection"
+        }
+      ]
     }
   },
   "scripts": {
@@ -83,9 +182,12 @@
     "vscode:prepublish": "npm run typecheck && node esbuild.mjs --production"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.2.0",
     "@types/node": "^20.19.0",
     "@types/vscode": "~1.90.0",
     "esbuild": "^0.28.2",
+    "highlight.js": "^11.12.0",
+    "markdown-it": "^14.3.2",
     "typescript": "~5.9.3"
   }
 }

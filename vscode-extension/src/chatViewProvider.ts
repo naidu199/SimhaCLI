@@ -3,14 +3,24 @@
 import * as crypto from "crypto";
 import * as vscode from "vscode";
 
+import type { ChatActions } from "./actions";
+import type { ApprovalCoordinator, ApprovalSurface } from "./approvals";
 import { BackendController, errorMessage } from "./controller";
-import type { FromPanel, ToPanel } from "./webviewMessages";
+import type { ApprovalRequestParams, TranscriptMessage } from "./protocol";
+import type { FromPanel, NoticeKind, PanelAttachment, ToPanel } from "./webviewMessages";
 
-export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
+const TITLE_LENGTH = 40;
+
+export class ChatViewProvider implements vscode.WebviewViewProvider, ApprovalSurface, vscode.Disposable {
   static readonly viewId = "simhacli.chat";
 
   private view: vscode.WebviewView | undefined;
   private ready = false;
+  /** UI messages sent before the panel was ready (agent events are not queued). */
+  private queued: ToPanel[] = [];
+  private actions: ChatActions | undefined;
+  private approvals: ApprovalCoordinator | undefined;
+  private chatTitle: string | undefined;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly postedEmitter = new vscode.EventEmitter<ToPanel>();
   /** Fires for every message sent to the panel (used by integration tests). */
@@ -39,7 +49,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     );
   }
 
+  connect(actions: ChatActions, approvals: ApprovalCoordinator): void {
+    this.actions = actions;
+    this.approvals = approvals;
+  }
+
   get isReady(): boolean {
+    return this.ready;
+  }
+
+  get canShowApprovals(): boolean {
     return this.ready;
   }
 
@@ -52,6 +71,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     ];
     view.webview.options = { enableScripts: true, localResourceRoots: mediaRoots };
     view.webview.html = this.html(view.webview);
+    view.description = this.chatTitle;
 
     this.disposables.push(
       view.webview.onDidReceiveMessage((message: FromPanel) => void this.handle(message)),
@@ -62,14 +82,60 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     );
   }
 
+  /** Show the panel (opening the sidebar if needed). */
+  async reveal(): Promise<void> {
+    if (this.view) {
+      this.view.show(true);
+    } else {
+      await vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`);
+    }
+  }
+
   /** Same path as the panel's Send button. */
-  async send(text: string): Promise<void> {
+  async send(text: string, attachments: PanelAttachment[] = []): Promise<void> {
     try {
-      const turnId = await this.controller.send(text);
+      const turnId = await this.controller.send(
+        text,
+        attachments.map(({ path, startLine, endLine }) => ({ path, startLine, endLine })),
+      );
+      if (!this.chatTitle) {
+        this.setTitle(text);
+      }
       this.post({ type: "turnStarted", turnId, text });
     } catch (error) {
       this.post({ type: "sendFailed", text, message: errorMessage(error) });
     }
+  }
+
+  showApproval(id: string, request: ApprovalRequestParams): void {
+    void this.reveal();
+    this.post({ type: "approvalRequest", id, request });
+  }
+
+  resolveApproval(id: string, approved: boolean, reason?: string): void {
+    this.post({ type: "approvalResolved", id, approved, reason });
+  }
+
+  addAttachment(attachment: PanelAttachment): void {
+    this.postUi({ type: "addAttachment", attachment });
+  }
+
+  focusInput(): void {
+    this.postUi({ type: "focusInput" });
+  }
+
+  showTranscript(title: string | null, messages: TranscriptMessage[], warning?: string): void {
+    this.setTitle(title ?? undefined);
+    this.postUi({ type: "loadTranscript", title, messages, warning });
+  }
+
+  showCleared(): void {
+    this.setTitle(undefined);
+    this.postUi({ type: "cleared" });
+  }
+
+  showNotice(text: string, kind: NoticeKind = "info"): void {
+    this.postUi({ type: "notice", text, kind });
   }
 
   dispose(): void {
@@ -81,13 +147,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   // -------------------------------------------------------------------------
 
   private async handle(message: FromPanel): Promise<void> {
+    const actions = this.actions;
     switch (message.type) {
       case "ready":
         this.ready = true;
         this.post({ type: "state", state: this.controller.currentState });
+        for (const queued of this.queued.splice(0)) {
+          this.post(queued);
+        }
         break;
       case "send":
-        await this.send(message.text);
+        await this.send(message.text, message.attachments ?? []);
         break;
       case "cancel":
         try {
@@ -102,6 +172,48 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       case "showLogs":
         this.output.show();
         break;
+      case "approvalResponse":
+        this.approvals?.respond(message.id, message.approved);
+        break;
+      case "viewDiff":
+        await actions?.viewDiff(message.id);
+        break;
+      case "attachActiveEditor":
+        await actions?.attachActiveEditor();
+        break;
+      case "copy":
+        await actions?.copy(message.text);
+        break;
+      case "openLink":
+        await actions?.openLink(message.href);
+        break;
+      case "pickModel":
+        await actions?.changeModel();
+        break;
+      case "pickApproval":
+        await actions?.changeApproval();
+        break;
+      case "setCredentials":
+        await actions?.setCredentials();
+        break;
+      case "revertChanges":
+        await actions?.revertChanges();
+        break;
+      case "newChat":
+        await actions?.newChat();
+        break;
+      case "showHistory":
+        await actions?.showHistory();
+        break;
+    }
+  }
+
+  private setTitle(text: string | undefined): void {
+    const oneLine = text?.replace(/\s+/g, " ").trim();
+    this.chatTitle =
+      oneLine && oneLine.length > TITLE_LENGTH ? `${oneLine.slice(0, TITLE_LENGTH - 1)}…` : oneLine || undefined;
+    if (this.view) {
+      this.view.description = this.chatTitle;
     }
   }
 
@@ -109,6 +221,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     this.postedEmitter.fire(message);
     if (this.view && this.ready) {
       void this.view.webview.postMessage(message);
+    }
+  }
+
+  /** Like post(), but kept until the panel is ready if it isn't yet. */
+  private postUi(message: ToPanel): void {
+    if (this.view && this.ready) {
+      this.post(message);
+    } else {
+      this.queued.push(message);
+      this.postedEmitter.fire(message);
     }
   }
 
@@ -135,11 +257,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 </head>
 <body>
   <div id="status" class="status" hidden></div>
-  <main id="messages" class="messages" aria-live="polite"></main>
+  <main id="messages" class="messages" aria-live="polite">
+    <div id="empty" class="empty">
+      <p class="empty-title">Ask SimhaCLI to read, change or run things in this workspace.</p>
+      <p>Attach the current file or selection with the paperclip, or type <code>@path</code> in your message.</p>
+    </div>
+  </main>
   <form id="composer" class="composer">
-    <textarea id="input" rows="3" placeholder="Ask SimhaCLI… (Enter to send, Shift+Enter for a new line)"></textarea>
+    <div id="attachments" class="attachments" hidden></div>
+    <textarea id="input" rows="3" placeholder="Ask SimhaCLI… (Enter to send, Shift+Enter for a new line)" aria-label="Message"></textarea>
     <div class="composer-actions">
-      <span id="meta" class="meta"></span>
+      <button id="attach" type="button" class="icon" title="Attach the current file or selection" aria-label="Attach the current file or selection">
+        <!-- Lucide "paperclip" icon, https://lucide.dev, ISC License -->
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/></svg>
+      </button>
+      <button id="model" type="button" class="link" title="Change model"></button>
+      <button id="approval" type="button" class="link" title="Change approval policy"></button>
+      <span class="spacer"></span>
       <button id="stop" type="button" class="secondary" hidden>Stop</button>
       <button id="send" type="submit">Send</button>
     </div>

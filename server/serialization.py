@@ -58,5 +58,18 @@ def confirmation_to_dict(confirmation: ToolConfirmation) -> dict[str, Any]:
         "command": confirmation.command,
         "paths": [str(path) for path in confirmation.affected_paths],
         "diff": confirmation.diff.to_diff() if confirmation.diff else None,
+        "fileChange": file_change_to_dict(confirmation.diff),
         "isDangerous": confirmation.is_dangerous,
+    }
+
+
+def file_change_to_dict(diff: FileDiff | None) -> dict[str, Any] | None:
+    """Full before/after contents, so a client can show a real diff view."""
+    if diff is None:
+        return None
+    return {
+        "path": str(diff.path),
+        "oldContent": str(diff.old_content or ""),
+        "newContent": str(diff.new_content or ""),
+        "isNewFile": bool(diff.is_new_file),
     }

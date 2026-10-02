@@ -183,6 +183,13 @@ export interface ServerLogParams {
   message: string;
 }
 
+export interface FileChange {
+  path: string;
+  oldContent: string;
+  newContent: string;
+  isNewFile: boolean;
+}
+
 export interface ApprovalRequestParams {
   turnId: string | null;
   tool: string;
@@ -191,6 +198,8 @@ export interface ApprovalRequestParams {
   command: string | null;
   paths: string[];
   diff: string | null;
+  /** Full before/after contents for file edits (for a diff view). */
+  fileChange: FileChange | null;
   isDangerous: boolean;
 }
 

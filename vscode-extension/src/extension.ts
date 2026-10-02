@@ -1,7 +1,10 @@
 import * as vscode from "vscode";
 
+import { ChatActions } from "./actions";
+import { ApprovalCoordinator } from "./approvals";
 import { ChatViewProvider } from "./chatViewProvider";
 import { BackendController } from "./controller";
+import { DiffContentProvider } from "./diffs";
 
 let controller: BackendController | undefined;
 
@@ -9,6 +12,10 @@ let controller: BackendController | undefined;
 export interface SimhaCliExtensionApi {
   controller: BackendController;
   chatView: ChatViewProvider;
+  approvals: ApprovalCoordinator;
+  actions: ChatActions;
+  /** This extension's `vscode.window`, so tests can answer its dialogs. */
+  window: typeof vscode.window;
 }
 
 export function activate(context: vscode.ExtensionContext): SimhaCliExtensionApi {
@@ -17,20 +24,42 @@ export function activate(context: vscode.ExtensionContext): SimhaCliExtensionApi
 
   controller = new BackendController(output, version);
   const chatView = new ChatViewProvider(context.extensionUri, controller, output);
+  const approvals = new ApprovalCoordinator(chatView);
+  const diffs = new DiffContentProvider();
+  const actions = new ChatActions(controller, chatView, approvals, diffs);
+  chatView.connect(actions, approvals);
+  controller.setApprovalHandler(approvals.handle);
 
+  const command = (id: string, run: () => unknown) => vscode.commands.registerCommand(id, run);
   context.subscriptions.push(
     output,
     controller,
     chatView,
+    diffs,
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, chatView, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
-    vscode.commands.registerCommand("simhacli.restartBackend", () => controller?.restart()),
-    vscode.commands.registerCommand("simhacli.showLogs", () => output.show()),
+    // Open approvals can't be answered once their turn or the backend is gone
+    controller.onTurnFinished((finished) => approvals.cancelForTurn(finished.turnId)),
+    controller.onDidChangeState((state) => {
+      if (state.status !== "ready") {
+        approvals.cancelAll();
+      }
+    }),
+    command("simhacli.newChat", () => actions.newChat()),
+    command("simhacli.history", () => actions.showHistory()),
+    command("simhacli.askAboutSelection", () => actions.attachActiveEditor()),
+    command("simhacli.addFileToChat", () => actions.attachActiveEditor()),
+    command("simhacli.changeModel", () => actions.changeModel()),
+    command("simhacli.changeApproval", () => actions.changeApproval()),
+    command("simhacli.setCredentials", () => actions.setCredentials()),
+    command("simhacli.revertChanges", () => actions.revertChanges()),
+    command("simhacli.restartBackend", () => controller?.restart()),
+    command("simhacli.showLogs", () => output.show()),
   );
 
   void controller.start();
-  return { controller, chatView };
+  return { controller, chatView, approvals, actions, window: vscode.window };
 }
 
 export async function deactivate(): Promise<void> {

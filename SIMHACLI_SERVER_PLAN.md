@@ -1,7 +1,7 @@
 # SimhaCLI Server & VS Code Extension: Build Plan (Phase 1)
 
 **Branch:** `feat/simhacli-server`
-**Status:** M1–M2 done; M3 complete (awaiting review); M4 next
+**Status:** M1–M3 done; M4 complete (awaiting review); M5 next
 
 Phase 1 brings SimhaCLI into VS Code as a sidebar chat panel. It runs the same agent as the CLI, with the same tools, approvals, saved chats, undo, config and API key. Phase 2 (inline code suggestions) is out of scope here.
 
@@ -92,7 +92,7 @@ Ids are unique per sender. Server-initiated requests use string ids (`"s1"`, `"s
 |---|---|---|
 | `agent/event` | notification | `{turnId, type, data}`. `type` is an `AgentEventType` value: `agent_start`, `text_delta`, `text_complete`, `thinking_delta`, `thinking_complete`, `tool_call_start`, `tool_call_complete`, `loop_detected`, `agent_error`, `agent_end`. `data` is the event's existing data dict, JSON-safe. |
 | `turn/finished` | notification | `{turnId, status: "completed" \| "cancelled" \| "error", undoCount, error?}` |
-| `approval/request` | request | `{turnId, tool, description, params, command?, paths[], diff?, isDangerous}`, answered with `{approved: bool}`. If the turn is cancelled while the request is open, a later answer is ignored. |
+| `approval/request` | request | `{turnId, tool, description, params, command?, paths[], diff?, fileChange?, isDangerous}`, answered with `{approved: bool}`. If the turn is cancelled while the request is open, a later answer is ignored. |
 | `server/log` | notification | `{level, message}`, for the extension's Output channel |
 
 ### Error codes
@@ -134,12 +134,17 @@ vscode-extension/
     backend.ts              # spawn server, request/response matching, restart, Output channel
     protocol.ts             # TypeScript types for the server protocol (mirrors section 3)
     controller.ts           # backend lifecycle per VS Code window, events for the panel
+    actions.ts              # user actions shared by commands and panel buttons
+    pickers.ts              # quick picks: history, model, approval, credentials, revert
+    diffs.ts                # in-memory documents for the diff editor
+    editorContext.ts        # active file / selection → attachment
     variables.ts            # ${workspaceFolder} / ${userHome} expansion in settings
     chatViewProvider.ts     # WebviewViewProvider, bridges panel ⇄ backend
     approvals.ts            # approval pop-ups + diff view
     webviewMessages.ts      # typed panel ⇄ extension message contract (design rule 5)
     webview/
       chat.ts               # panel script (bundled to dist/webview.js)
+      markdown.ts           # markdown-it + highlight.js rendering
       tsconfig.json         # DOM typings for the panel only
   media/
     chat.css  simhacli.svg
@@ -226,19 +231,27 @@ Additions beyond the original list:
 
 ### M4: Extension features (TypeScript)
 
-- [ ] **M4.1** Markdown rendering with code highlighting and a copy button on code blocks
-- [ ] **M4.2** Thinking shown in a collapsible block
-- [ ] **M4.3** Tool calls shown as collapsible rows (name, short arguments, success/failure, output preview)
-- [ ] **M4.4** Approval pop-up (Approve / Deny); file edits offer **View diff** in VS Code's diff editor before deciding
-- [ ] **M4.5** Stop button (`chat/cancel`) while a turn is running
-- [ ] **M4.6** Attach current file / selection button; **SimhaCLI: Ask About Selection** in the editor right-click menu
-- [ ] **M4.7** New Chat and History (quick pick of saved chats → resume, with previous messages rendered)
-- [ ] **M4.8** Model and approval policy shown in the panel header and editable
-- [ ] **M4.9** Missing-credentials flow: prompt for API key and base URL, then `credentials/set`
-- [ ] **M4.10** Undo: "N files changed. Revert" action after a turn, using `undo/list` and `undo/revert`
-- [ ] **M4.11** Panel follows VS Code light, dark and high-contrast themes
+- [x] **M4.1** Markdown rendering with code highlighting and a copy button on code blocks
+- [x] **M4.2** Thinking shown in a collapsible block
+- [x] **M4.3** Tool calls shown as collapsible rows (name, short arguments, success/failure, output preview)
+- [x] **M4.4** Approval pop-up (Approve / Deny); file edits offer **View diff** in VS Code's diff editor before deciding
+- [x] **M4.5** Stop button (`chat/cancel`) while a turn is running
+- [x] **M4.6** Attach current file / selection button; **SimhaCLI: Ask About Selection** in the editor right-click menu
+- [x] **M4.7** New Chat and History (quick pick of saved chats → resume, with previous messages rendered)
+- [x] **M4.8** Model and approval policy shown in the panel header and editable
+- [x] **M4.9** Missing-credentials flow: prompt for API key and base URL, then `credentials/set`
+- [x] **M4.10** Undo: "N files changed. Revert" action after a turn, using `undo/list` and `undo/revert`
+- [x] **M4.11** Panel follows VS Code light, dark and high-contrast themes
 
 **Done when:** this manual pass works: read a file; edit a file with approval and diff; a shell command needing approval; cancel mid-tool; resume an old chat; revert a change.
+
+**Result (2026-10-02):** automated (outside the repo): panel 41/41 in jsdom; integration 19/19 in a real VS Code window covering every item of the manual pass (approve with diff editor, deny, cancel while an approval is open, revert, attachments, history resume, model/approval/credentials, links, copy); M3 integration 14/14 and backend 15/15 still pass; server smoke test 62/62. Light/dark/high-contrast appearance is the manual check for review.
+Changes from the original list:
+- **Approvals are cards in the chat panel** (Approve / Deny / View diff), not modal pop-ups: a modal blocks the window, so the diff couldn't be inspected while deciding. The modal remains as a fallback when the panel isn't open. Open approvals are cancelled when their turn ends or the backend stops.
+- **Protocol addition:** `approval/request` now carries `fileChange {path, oldContent, newContent, isNewFile}` so VS Code's diff editor shows real before/after files.
+- New Chat and History are view-title buttons; Change Model / Approval / API Key, Restart and Logs are in the view's `…` menu; Ask About Selection / Add Current File are in the editor context menu.
+- Markdown uses markdown-it with raw HTML disabled (model output can't inject markup or `javascript:` links); code blocks use highlight.js colored with theme variables.
+- Fixed: paths shown absolute (e.g. `/private/var/...`) when the workspace is reached through a symlink; paths are now made relative to the backend's resolved cwd.
 
 ### M5: Polish & packaging
 
@@ -276,3 +289,5 @@ Additions beyond the original list:
 | 2026-10-02 | Serve mode redirects fd 0 to the null device and fd 1 to stderr at the OS level |
 | 2026-10-02 | Extension supports VS Code ≥ 1.90; disabled in untrusted workspaces |
 | 2026-10-02 | Test code and test-only dependencies stay outside the repo |
+| 2026-10-02 | Approvals shown as cards in the chat panel (modal dialog only as fallback) |
+| 2026-10-02 | Activity-bar icon: terminal + AI sparkle, built from Lucide icons (ISC) |
