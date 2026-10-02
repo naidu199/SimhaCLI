@@ -34,6 +34,8 @@ from server.protocol import (
     take_over_stdio,
 )
 from server.serialization import confirmation_to_dict, event_to_dict
+from services import sessions, settings, undo
+from services.sessions import SessionError
 from tools.base import ToolConfirmation
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,17 @@ class AgentServer:
             "initialize": self._initialize,
             "chat/send": self._chat_send,
             "chat/cancel": self._chat_cancel,
+            "sessions/list": self._sessions_list,
+            "sessions/history": self._sessions_history,
+            "sessions/resume": self._sessions_resume,
+            "sessions/new": self._sessions_new,
+            "sessions/delete": self._sessions_delete,
+            "config/get": self._config_get,
+            "model/set": self._model_set,
+            "approval/set": self._approval_set,
+            "credentials/set": self._credentials_set,
+            "undo/list": self._undo_list,
+            "undo/revert": self._undo_revert,
             "shutdown": self._shutdown,
         }
 
@@ -266,6 +279,173 @@ class AgentServer:
             logger.warning(f"Approval request failed, denying: {e}")
             return False
         return isinstance(result, dict) and result.get("approved") is True
+
+    # ------------------------------------------------------------------
+    # Sessions (saved chats)
+    # ------------------------------------------------------------------
+    def _require_idle(self, action: str) -> None:
+        if self.turn_running:
+            raise ProtocolError(TURN_RUNNING, f"Can't {action} while a turn is running")
+
+    @staticmethod
+    def _session_ref(params: dict[str, Any]) -> str:
+        ref = params.get("id")
+        if not isinstance(ref, str) or not ref.strip():
+            raise ProtocolError(INVALID_PARAMS, "id must be a non-empty string")
+        return ref.strip()
+
+    async def _sessions_list(self, params: dict[str, Any]) -> dict[str, Any]:
+        limit = params.get("limit")
+        if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 1):
+            raise ProtocolError(INVALID_PARAMS, "limit must be a positive integer")
+        current_id = self.agent.session.session_id
+        return {
+            "sessions": [
+                {
+                    "id": s["session_id"],
+                    "title": s.get("title"),
+                    "createdAt": s.get("created_at"),
+                    "updatedAt": s.get("updated_at"),
+                    "messageCount": s.get("message_count", 0),
+                    "cwd": s.get("cwd"),
+                    "model": s.get("model"),
+                    "source": s.get("source"),
+                    "isCurrent": s["session_id"] == current_id,
+                }
+                for s in sessions.list_sessions(limit)
+            ]
+        }
+
+    async def _sessions_history(self, params: dict[str, Any]) -> dict[str, Any]:
+        if params.get("id") is None:
+            session = self.agent.session
+            return {
+                "id": session.session_id,
+                "title": session.to_snapshot().title,
+                "messages": sessions.transcript(session.context_manager.get_messages()),
+            }
+        try:
+            snapshot = sessions.load(self._session_ref(params))
+        except SessionError as e:
+            raise ProtocolError(INVALID_PARAMS, str(e)) from e
+        return {
+            "id": snapshot.session_id,
+            "title": snapshot.title,
+            "messages": sessions.transcript(snapshot.messages),
+        }
+
+    async def _sessions_resume(self, params: dict[str, Any]) -> dict[str, Any]:
+        self._require_idle("switch chats")
+        try:
+            snapshot, warning = sessions.resume(self.agent, self.config, self._session_ref(params))
+        except SessionError as e:
+            raise ProtocolError(INVALID_PARAMS, str(e)) from e
+        result = {
+            "sessionId": snapshot.session_id,
+            "title": snapshot.title,
+            "messages": sessions.transcript(snapshot.messages),
+        }
+        if warning:
+            result["warning"] = warning
+        return result
+
+    async def _sessions_new(self, params: dict[str, Any]) -> dict[str, Any]:
+        self._require_idle("start a new chat")
+        sessions.start_new(self.agent)
+        return {"sessionId": self.agent.session.session_id}
+
+    async def _sessions_delete(self, params: dict[str, Any]) -> dict[str, Any]:
+        try:
+            sessions.delete(self._session_ref(params), self.agent.session.session_id)
+        except SessionError as e:
+            raise ProtocolError(INVALID_PARAMS, str(e)) from e
+        return {"deleted": True}
+
+    # ------------------------------------------------------------------
+    # Settings
+    # ------------------------------------------------------------------
+    async def _config_get(self, params: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "model": self.config.model.name,
+            "approval": self.config.approval.value,
+            "approvalPolicies": [p.value for p in type(self.config.approval)],
+            "cwd": str(self.config.cwd),
+            "autoSaveSessions": self.config.auto_save_sessions,
+            "apiBaseUrl": self.config.get_api_base_url(),
+            "hasApiKey": self.config.get_api_key() is not None,
+        }
+
+    async def _model_set(self, params: dict[str, Any]) -> dict[str, Any]:
+        self._require_idle("change the model")
+        name = params.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ProtocolError(INVALID_PARAMS, "name must be a non-empty string")
+        saved = settings.set_model(self.agent, self.config, name)
+        return self._with_save_result({"model": self.config.model.name}, saved)
+
+    async def _approval_set(self, params: dict[str, Any]) -> dict[str, Any]:
+        policy = params.get("policy")
+        if not isinstance(policy, str):
+            raise ProtocolError(INVALID_PARAMS, "policy must be a string")
+        try:
+            applied, saved = settings.set_approval(self.agent, self.config, policy)
+        except ValueError as e:
+            raise ProtocolError(INVALID_PARAMS, str(e)) from e
+        return self._with_save_result({"approval": applied.value}, saved)
+
+    @staticmethod
+    def _with_save_result(result: dict[str, Any], saved: settings.SaveResult) -> dict[str, Any]:
+        if saved.path:
+            result["savedTo"] = str(saved.path)
+        if saved.error:
+            result["saveError"] = saved.error
+        return result
+
+    async def _credentials_set(self, params: dict[str, Any]) -> dict[str, Any]:
+        self._require_idle("change credentials")
+        api_key = params.get("apiKey")
+        base_url = params.get("baseUrl")
+        for name, value in (("apiKey", api_key), ("baseUrl", base_url)):
+            if value is not None and not isinstance(value, str):
+                raise ProtocolError(INVALID_PARAMS, f"{name} must be a string")
+        if not (api_key or "").strip() and not (base_url or "").strip():
+            raise ProtocolError(INVALID_PARAMS, "Provide apiKey and/or baseUrl")
+        await settings.set_credentials(self.agent, self.config, api_key=api_key, base_url=base_url)
+        self._needs_credentials = self.config.get_api_key() is None
+        return {"needsCredentials": self._needs_credentials}
+
+    # ------------------------------------------------------------------
+    # Undo
+    # ------------------------------------------------------------------
+    async def _undo_list(self, params: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "changes": [
+                {"index": c.index, "path": c.path, "isNewFile": c.is_new_file}
+                for c in undo.list_changes(self.agent)
+            ]
+        }
+
+    async def _undo_revert(self, params: dict[str, Any]) -> dict[str, Any]:
+        self._require_idle("undo changes")
+        if params.get("all") is True:
+            outcomes = undo.revert_all(self.agent)
+        else:
+            index = params.get("index")
+            if isinstance(index, bool) or not isinstance(index, int):
+                raise ProtocolError(INVALID_PARAMS, "Provide index (integer) or all: true")
+            try:
+                outcomes = [undo.revert(self.agent, index)]
+            except IndexError as e:
+                raise ProtocolError(INVALID_PARAMS, str(e)) from e
+        return {
+            "reverted": [o.path for o in outcomes if o.done],
+            "skipped": [
+                {"path": o.path, "status": o.status, "reason": o.reason}
+                for o in outcomes
+                if not o.done
+            ],
+            "remaining": len(undo.list_changes(self.agent)),
+        }
 
     # ------------------------------------------------------------------
     # shutdown

@@ -81,8 +81,9 @@ class ClearCommand(Command):
         if not agent or not console:
             return CommandResult(success=False, message="No active session to clear")
 
-        had_conversation = agent.session.has_conversation()
-        agent.session.start_new()
+        from services.sessions import start_new
+
+        had_conversation = start_new(agent)
         console.print("[success]Conversation cleared[/success]")
         config = context.get("config")
         if had_conversation and config and config.auto_save_sessions:

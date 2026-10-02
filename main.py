@@ -435,7 +435,27 @@ class SimhaCLI:
         return kind.value if kind else None
 
 
+class PromptOrCommandGroup(click.Group):
+    """Treat leading words that aren't a subcommand as a one-shot prompt.
+
+    Without this, ``simhacli "fix the bug"`` fails with "No such command",
+    because click resolves the first argument as a subcommand name.
+    """
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        rest = super().parse_args(ctx, args)
+        # click >= 8.2 stores the would-be subcommand in _protected_args
+        attr = "_protected_args" if "_protected_args" in vars(ctx) else "protected_args"
+        protected = getattr(ctx, attr, None) or []
+        if protected and protected[0] not in self.commands:
+            ctx.args = [*protected, *ctx.args]
+            setattr(ctx, attr, [])
+            return ctx.args
+        return rest
+
+
 @click.group(
+    cls=PromptOrCommandGroup,
     invoke_without_command=True,
     context_settings=dict(allow_extra_args=True, allow_interspersed_args=False),
 )

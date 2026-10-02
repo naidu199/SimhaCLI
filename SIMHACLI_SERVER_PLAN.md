@@ -1,7 +1,7 @@
 # SimhaCLI Server & VS Code Extension: Build Plan (Phase 1)
 
 **Branch:** `feat/simhacli-server`
-**Status:** M1 complete (awaiting review); M2 next
+**Status:** M1 done; M2 complete (awaiting review); M3 next
 
 Phase 1 brings SimhaCLI into VS Code as a sidebar chat panel. It runs the same agent as the CLI, with the same tools, approvals, saved chats, undo, config and API key. Phase 2 (inline code suggestions) is out of scope here.
 
@@ -73,17 +73,17 @@ Ids are unique per sender. Server-initiated requests use string ids (`"s1"`, `"s
 | `initialize` | `{cwd?, clientName?, clientVersion?, protocolVersion?}` | `{serverVersion, protocolVersion, cwd, model, approval, sessionId, needsCredentials}`. `clientName` is recorded as the saved chat's source. |
 | `chat/send` | `{text, attachments?: [{path, startLine?, endLine?}]}` | `{turnId}`; output arrives as `agent/event` notifications |
 | `chat/cancel` | `{turnId}` | `{cancelled: bool}` |
-| `sessions/list` | `{limit?}` | `{sessions: [{id, title, updatedAt, messageCount, cwd, source}]}` |
-| `sessions/history` | `{id?}` (default: current chat) | `{title, messages: [{role, text, toolCalls?}]}` |
-| `sessions/resume` | `{id}` | `{sessionId, title, messages}` |
+| `sessions/list` | `{limit?}` | `{sessions: [{id, title, createdAt, updatedAt, messageCount, cwd, model, source, isCurrent}]}` |
+| `sessions/history` | `{id?}` (default: current chat) | `{id, title, messages: [{role, text, toolCalls: [{name, arguments}]}]}` |
+| `sessions/resume` | `{id}` (full id, prefix or list number) | `{sessionId, title, messages, warning?}` |
 | `sessions/new` | `{}` | `{sessionId}` |
 | `sessions/delete` | `{id}` | `{deleted: bool}` |
-| `config/get` | `{}` | `{model, approval, cwd, autoSaveSessions, approvalPolicies[]}` |
-| `model/set` | `{name}` | `{model}` |
-| `approval/set` | `{policy}` | `{approval}` |
+| `config/get` | `{}` | `{model, approval, approvalPolicies[], cwd, autoSaveSessions, apiBaseUrl, hasApiKey}` |
+| `model/set` | `{name}` | `{model, savedTo?, saveError?}` |
+| `approval/set` | `{policy}` | `{approval, savedTo?, saveError?}` |
 | `credentials/set` | `{apiKey?, baseUrl?}` | `{needsCredentials}` |
 | `undo/list` | `{}` | `{changes: [{index, path, isNewFile}]}` |
-| `undo/revert` | `{index}` or `{all: true}` | `{reverted: [path], skipped: [{path, reason}]}` |
+| `undo/revert` | `{index}` or `{all: true}` | `{reverted: [path], skipped: [{path, status, reason}], remaining}` |
 | `shutdown` | `{}` | `{}` (server exits after replying) |
 
 ### Server → Extension
@@ -121,6 +121,7 @@ server/                     # new Python package (backend)
 services/                   # new: logic shared by CLI commands and the server
   sessions.py               # list / history / resume / new / delete
   undo.py                   # list / revert
+  settings.py               # model / approval policy / credentials
 scripts/
   serve_smoke_test.py       # drives a real `simhacli serve` with a fake LLM
 
@@ -178,17 +179,24 @@ Additions beyond the original list:
 
 ### M2: Server features + shared logic (Python)
 
-- [ ] **M2.1** `services/sessions.py`: move list, history, resume, new and delete logic out of `cli/commands/session_commands.py`
-- [ ] **M2.2** `services/undo.py`: move list and revert logic out of `cli/commands/undo_commands.py`
-- [ ] **M2.3** Refactor the CLI commands (`/sessions`, `/history`, `/resume`, `/clear`, `/undo`) to call the shared services, with no behaviour change
-- [ ] **M2.4** Server: `sessions/list`, `sessions/history`, `sessions/resume`, `sessions/new`, `sessions/delete`
-- [ ] **M2.5** Server: `config/get`, `model/set`, `approval/set` (also updates the live ApprovalManager)
-- [ ] **M2.6** Server: `credentials/set`, saved the same way as `/credentials`
-- [ ] **M2.7** Server: `undo/list`, `undo/revert`
-- [ ] **M2.8** Extend `serve_smoke_test.py` to cover every M2 method
-- [ ] **M2.9** Re-run the existing session/undo verification for the CLI
+- [x] **M2.1** `services/sessions.py`: move list, history, resume, new and delete logic out of `cli/commands/session_commands.py`
+- [x] **M2.2** `services/undo.py`: move list and revert logic out of `cli/commands/undo_commands.py`
+- [x] **M2.3** Refactor the CLI commands (`/sessions`, `/history`, `/resume`, `/clear`, `/undo`) to call the shared services, with no behaviour change
+- [x] **M2.4** Server: `sessions/list`, `sessions/history`, `sessions/resume`, `sessions/new`, `sessions/delete`
+- [x] **M2.5** Server: `config/get`, `model/set`, `approval/set` (also updates the live ApprovalManager)
+- [x] **M2.6** Server: `credentials/set`, saved the same way as `/credentials`
+- [x] **M2.7** Server: `undo/list`, `undo/revert`
+- [x] **M2.8** Extend `serve_smoke_test.py` to cover every M2 method
+- [x] **M2.9** Re-run the existing session/undo verification for the CLI
 
 **Done when:** the smoke test covers all protocol methods, and the CLI `/sessions`, `/history`, `/resume`, `/clear` and `/undo` behave as before.
+
+**Result (2026-10-02):** smoke test passes 61/61 (3 consecutive runs); CLI regression passes, including a new test for the refactored `/undo`, `/model`, `/approval` and `/credentials`; a one-shot CLI run against the fake model works.
+Additions beyond the original list:
+- `services/settings.py` (model, approval, credentials) so `/model`, `/approval`, `/credentials` and the server share one implementation.
+- `sessions/list` items include `isCurrent` and `model`; `sessions/resume` may return a `warning` when the chat was started in another directory; `undo/revert` also returns `remaining`; `model/set` / `approval/set` return `savedTo` or `saveError`.
+- State-changing methods (`sessions/new`, `sessions/resume`, `model/set`, `credentials/set`, `undo/revert`) return `-32002` while a turn is running. `approval/set` is allowed mid-turn.
+- Fixed a pre-existing bug: `simhacli "<prompt>"` failed with "No such command" since the `bot` subcommand was added. Words that aren't a subcommand are now treated as the prompt.
 
 ### M3: Extension skeleton (TypeScript)
 

@@ -5,7 +5,15 @@ from typing import Any
 from rich.markup import escape
 
 from config.config import ApprovalPolicy
+from services import settings
 from .base import Command, CommandResult
+
+
+def _print_save_result(console: Any, what: str, result: settings.SaveResult) -> None:
+    if result.path:
+        console.print(f"[dim]{what} saved to project config: {escape(str(result.path))}[/dim]")
+    elif result.error:
+        console.print(f"[warning]Could not save to project config: {escape(result.error)}[/warning]")
 
 
 class ModelCommand(Command):
@@ -22,24 +30,11 @@ class ModelCommand(Command):
 
         args = args.strip()
         if args:
-            config.model_name = args
+            result = settings.set_model(agent, config, args)
             console.print(f"[success]Model changed to: {escape(args)}[/success]")
-
             if agent and agent.session:
-                tools = agent.session.tool_registry.get_tools()
-                agent.session.context_manager.refresh_system_prompt(tools=tools)
                 console.print("[dim]System prompt updated with new model info[/dim]")
-
-                # Save to project config (local only, preserving comments)
-                project_config_path = config.cwd / ".simhacli" / "config.toml"
-                if project_config_path.parent.exists():
-                    try:
-                        from config.loader import set_config_value
-
-                        set_config_value("model", "name", args, config_path=project_config_path)
-                        console.print(f"[dim]Model saved to project config: {escape(str(project_config_path))}[/dim]")
-                    except Exception as e:
-                        console.print(f"[warning]Could not save to project config: {escape(str(e))}[/warning]")
+            _print_save_result(console, "Model", result)
         else:
             console.print(f"Current model: {escape(str(config.model_name))}")
 
@@ -64,26 +59,9 @@ class ApprovalCommand(Command):
         args = args.strip().lower()
         if args:
             try:
-                approval = ApprovalPolicy(args)
-                config.approval = approval
-
-                # Also update the live ApprovalManager so the change takes effect now
-                session = getattr(agent, "session", None) if agent else None
-                approval_manager = getattr(session, "approval_manager", None) if session else None
-                if approval_manager is not None:
-                    approval_manager.approval_policy = approval
-
+                _, result = settings.set_approval(agent, config, args)
                 console.print(f"[success]Approval policy changed to: {escape(args)}[/success]")
-
-                # Save to project config (local only, preserving comments)
-                project_config_path = config.cwd / ".simhacli" / "config.toml"
-                if project_config_path.parent.exists():
-                    try:
-                        from config.loader import set_config_value
-                        set_config_value("", "approval", args, config_path=project_config_path)
-                        console.print(f"[dim]Approval saved to project config: {escape(str(project_config_path))}[/dim]")
-                    except Exception as e:
-                        console.print(f"[warning]Could not save to project config: {escape(str(e))}[/warning]")
+                _print_save_result(console, "Approval", result)
             except ValueError:
                 console.print(f"[error]Incorrect approval policy: {escape(args)}[/error]")
                 console.print(f"Valid options: {', '.join(p.value for p in ApprovalPolicy)}")
@@ -110,7 +88,7 @@ class CredentialsCommand(Command):
 
         from rich.prompt import Prompt, Confirm
         from rich.panel import Panel
-        from config.loader import get_config_file_path, set_config_value, _mask_api_key
+        from config.loader import get_config_file_path, _mask_api_key
 
         config_path = get_config_file_path()
 
@@ -137,75 +115,52 @@ class CredentialsCommand(Command):
         operation = args.strip().lower()
 
         api_base_url = config.get_api_base_url()
-        api_key = config.get_api_key()
+        new_url: str | None = None
+        new_key: str | None = None
+
+        def ask_base_url() -> str:
+            console.print()
+            use_openrouter = Confirm.ask(
+                "[bold yellow]Use OpenRouter (https://openrouter.ai/api/v1)?[/bold yellow]",
+                default=True,
+            )
+            if use_openrouter:
+                return "https://openrouter.ai/api/v1"
+            return Prompt.ask(
+                "[bold yellow]Enter new API Base URL[/bold yellow]",
+                default=api_base_url or "",
+            )
+
+        def ask_api_key() -> str | None:
+            console.print()
+            entered = Prompt.ask(
+                "[bold yellow]Enter new API Key[/bold yellow]", password=True
+            )
+            return entered.strip() or None
 
         if operation == "update":
-            console.print()
-            use_openrouter = Confirm.ask(
-                "[bold yellow]Use OpenRouter (https://openrouter.ai/api/v1)?[/bold yellow]",
-                default=True,
-            )
-            if use_openrouter:
-                api_base_url = "https://openrouter.ai/api/v1"
-            else:
-                api_base_url = Prompt.ask(
-                    "[bold yellow]Enter new API Base URL[/bold yellow]",
-                    default=api_base_url or "",
-                )
-            set_config_value("", "api_base_url", api_base_url)
-            config.api_base_url = api_base_url
-            console.print(f"[green]✓ Base URL updated: {escape(api_base_url)}[/green]")
-
-            console.print()
-            new_key = Prompt.ask(
-                "[bold yellow]Enter new API Key[/bold yellow]", password=True
-            )
-            if new_key.strip():
-                api_key = new_key.strip()
-                set_config_value("", "api_key", api_key)
-                config.api_key = api_key
-                console.print(f"[green]✓ API Key updated: {escape(_mask_api_key(api_key))}[/green]")
-            else:
-                console.print("[dim]API Key unchanged[/dim]")
-
+            new_url = ask_base_url()
+            new_key = ask_api_key()
         elif operation == "key":
-            console.print()
-            new_key = Prompt.ask(
-                "[bold yellow]Enter new API Key[/bold yellow]", password=True
-            )
-            if new_key.strip():
-                api_key = new_key.strip()
-                set_config_value("", "api_key", api_key)
-                config.api_key = api_key
-                console.print(f"[green]✓ API Key updated: {escape(_mask_api_key(api_key))}[/green]")
-            else:
-                console.print("[dim]API Key unchanged[/dim]")
-
+            new_key = ask_api_key()
         elif operation == "url":
-            console.print()
-            use_openrouter = Confirm.ask(
-                "[bold yellow]Use OpenRouter (https://openrouter.ai/api/v1)?[/bold yellow]",
-                default=True,
-            )
-            if use_openrouter:
-                api_base_url = "https://openrouter.ai/api/v1"
-            else:
-                api_base_url = Prompt.ask(
-                    "[bold yellow]Enter new API Base URL[/bold yellow]",
-                    default=api_base_url or "",
-                )
-            set_config_value("", "api_base_url", api_base_url)
-            config.api_base_url = api_base_url
-            console.print(f"[green]✓ Base URL updated: {escape(api_base_url)}[/green]")
-
+            new_url = ask_base_url()
         else:
             console.print(f"[error]Unknown operation: {escape(operation)}[/error]")
             return CommandResult(success=False)
 
-        console.print(f"\n[green]✓ Credentials saved to: {escape(str(config_path))}[/green]")
+        config_path = await settings.set_credentials(
+            agent, config, api_key=new_key, base_url=new_url
+        )
+        if new_url:
+            console.print(f"[green]✓ Base URL updated: {escape(new_url)}[/green]")
+        if new_key:
+            console.print(f"[green]✓ API Key updated: {escape(_mask_api_key(new_key))}[/green]")
+        elif operation in ("update", "key"):
+            console.print("[dim]API Key unchanged[/dim]")
 
+        console.print(f"\n[green]✓ Credentials saved to: {escape(str(config_path))}[/green]")
         if agent and agent.session:
-            await agent.session.client.close_client()
             console.print("[dim]LLM client will use new credentials on next request[/dim]")
 
         return CommandResult(success=True)
