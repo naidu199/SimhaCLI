@@ -192,7 +192,7 @@ enabled = true
 # Sequential Thinking MCP - Explicit reasoning scratchpad for complex multi-step tasks
 [mcp_servers.sequential_thinking]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-sequentialthinking"]
+args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
 enabled = true
 
 # Memory MCP - Persists knowledge graph across sessions
@@ -201,15 +201,16 @@ command = "npx"
 args = ["-y", "@modelcontextprotocol/server-memory"]
 enabled = true
 
-# Fetch MCP - Pull live docs, READMEs, API refs mid-task
-[mcp_servers.fetch]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-fetch"]
-enabled = true
-
 # ───────────────────────────────────────────────────────────────────────
 # OPTIONAL MCP SERVERS (uncomment to enable)
 # ───────────────────────────────────────────────────────────────────────
+
+# Fetch MCP - Pull live docs, READMEs, API refs mid-task (the built-in
+# web_fetch tool already covers this). Python package - requires uv:
+# https://docs.astral.sh/uv/
+# [mcp_servers.fetch]
+# command = "uvx"
+# args = ["mcp-server-fetch"]
 
 # GitHub MCP - Create repos, manage PRs, issues
 # [mcp_servers.github]
@@ -747,6 +748,40 @@ def _prompt_for_api_credentials(
     return api_key, api_base_url
 
 
+# npm packages named by older project templates that don't exist. A string
+# value is the correct package; None means there is no npm equivalent and the
+# server is disabled.
+_BROKEN_MCP_PACKAGES: dict[str, str | None] = {
+    "@modelcontextprotocol/server-sequentialthinking": "@modelcontextprotocol/server-sequential-thinking",
+    # The official fetch server is the Python package `mcp-server-fetch` (uvx)
+    "@modelcontextprotocol/server-fetch": None,
+}
+
+
+def _fix_broken_mcp_servers(config: dict[str, Any], source: Path) -> None:
+    """Repair MCP entries written by older templates (in memory only)."""
+    mcp_servers = config.get("mcp_servers")
+    if not isinstance(mcp_servers, dict):
+        return
+    for name, server in mcp_servers.items():
+        if not isinstance(server, dict) or not isinstance(server.get("args"), list):
+            continue
+        args = server["args"]
+        for index, arg in enumerate(args):
+            if arg not in _BROKEN_MCP_PACKAGES:
+                continue
+            replacement = _BROKEN_MCP_PACKAGES[arg]
+            if replacement:
+                args[index] = replacement
+            elif server.get("enabled", True):
+                server["enabled"] = False
+                logger.info(
+                    f"MCP server '{name}' in {source} uses {arg}, which does not "
+                    "exist on npm; skipping it. Use command = \"uvx\", "
+                    "args = [\"mcp-server-fetch\"] instead, or the built-in web_fetch tool."
+                )
+
+
 def _template_mcp_servers() -> dict[str, Any]:
     """MCP servers enabled by default in the auto-generated project template."""
     try:
@@ -776,6 +811,7 @@ def _warn_about_risky_project_config(
             name
             for name, server in mcp_servers.items()
             if template_servers.get(name) != server
+            and not (isinstance(server, dict) and server.get("enabled") is False)
         )
         if custom:
             risky.append(
@@ -809,6 +845,7 @@ def load_config(cwd: Path | None = None, prompt_api: bool = True) -> Config:
     if system_path.is_file():
         try:
             config_dict = _parse_toml(system_path)
+            _fix_broken_mcp_servers(config_dict, system_path)
             logger.info(f"Loaded system config from {system_path}")
         except ConfigError as e:
             logger.warning(f"Skipping invalid config file: {system_path}: {e}")
@@ -816,6 +853,7 @@ def load_config(cwd: Path | None = None, prompt_api: bool = True) -> Config:
     if project_path:
         try:
             project_config_dict = _parse_toml(project_path)
+            _fix_broken_mcp_servers(project_config_dict, project_path)
             # Filter out global-only keys that should NOT be overridden by project config
             GLOBAL_ONLY_KEYS = {"api_key", "api_base_url", "telegram"}
             filtered_project_config = {

@@ -219,7 +219,7 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
 **Sequential Thinking MCP**
 - Provides explicit reasoning scratchpad for complex multi-step tasks
 - Agent can break down problems and think step-by-step
-- Config: `[mcp_servers.sequential_thinking]` with `@modelcontextprotocol/server-sequentialthinking`
+- Config: `[mcp_servers.sequential_thinking]` with `@modelcontextprotocol/server-sequential-thinking`
 
 **Memory MCP**
 - Persists a knowledge graph across sessions
@@ -230,7 +230,7 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
 **Fetch MCP**
 - Pulls live docs, READMEs, API refs, Stack Overflow mid-task
 - Useful for current information without leaving conversation
-- Config: `[mcp_servers.fetch]` with `@modelcontextprotocol/server-fetch`
+- Config: `[mcp_servers.fetch]` with `command = "uvx"`, `args = ["mcp-server-fetch"]` (Python package; needs [uv](https://docs.astral.sh/uv/)). Not enabled by default — the built-in `web_fetch` tool covers the same need. There is no `@modelcontextprotocol/server-fetch` npm package
 - Optional tuning: `FETCH_MAX_RESPONSE_SIZE`, `FETCH_TIMEOUT_MS`
 
 ### Workflow Automation

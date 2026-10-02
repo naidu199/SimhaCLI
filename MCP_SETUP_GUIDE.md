@@ -156,7 +156,7 @@ Provides an explicit reasoning scratchpad for complex multi-step tasks. The agen
 ```toml
 [mcp_servers.sequential_thinking]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-sequentialthinking"]
+args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
 enabled = true
 ```
 
@@ -189,14 +189,14 @@ env = { MEMORY_FILE_PATH = "D:/mine/SimhaCLI/.simhacli/memory.json" }
 
 Lets the agent pull live documentation, READMEs, API references, and Stack Overflow answers during a task. Useful for looking up current information without leaving the conversation.
 
-**No credentials needed.**
+**No credentials needed.** The fetch server is a Python package (`mcp-server-fetch`), so it needs [uv](https://docs.astral.sh/uv/) (`brew install uv` or `pip install uv`). There is no npm package for it. SimhaCLI's built-in `web_fetch` tool covers the same need without any setup.
 
 **Config:**
 
 ```toml
 [mcp_servers.fetch]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-fetch"]
+command = "uvx"
+args = ["mcp-server-fetch"]
 enabled = true
 ```
 

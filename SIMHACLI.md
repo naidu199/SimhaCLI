@@ -270,7 +270,7 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
 
 [mcp_servers.sequential_thinking]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-sequentialthinking"]
+args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
 enabled = true
 
 [mcp_servers.memory]
@@ -280,9 +280,9 @@ enabled = true
 # Optional: pin where the knowledge graph file lives on disk
 # env = { MEMORY_FILE_PATH = "D:/mine/SimhaCLI/.simhacli/memory.json" }
 
-[mcp_servers.fetch]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-fetch"]
+[mcp_servers.fetch]   # Python package, requires uv (https://docs.astral.sh/uv/)
+command = "uvx"
+args = ["mcp-server-fetch"]
 enabled = true
 # Optional tuning:
 # env = {

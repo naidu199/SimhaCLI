@@ -28,6 +28,15 @@ class MCPToolInfo:
     server_name: str = ""
 
 
+def _tool_input_schema(tool: Any) -> dict[str, Any]:
+    # MCP SDK v2 renamed Tool.inputSchema to input_schema; the old name still
+    # works but emits a deprecation warning, so only fall back to it.
+    schema = getattr(tool, "input_schema", None)
+    if schema is None:
+        schema = getattr(tool, "inputSchema", None)
+    return schema or {}
+
+
 class MCPClient:
     def __init__(
         self,
@@ -86,9 +95,7 @@ class MCPClient:
                 self._tools[tool.name] = MCPToolInfo(
                     name=tool.name,
                     description=tool.description or "",
-                    input_schema=(
-                        tool.inputSchema if hasattr(tool, "inputSchema") else {}
-                    ),
+                    input_schema=_tool_input_schema(tool),
                     server_name=self.name,
                 )
 
