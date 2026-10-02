@@ -41,14 +41,30 @@ def _load_attachment(
 
     raw = Path(item["path"]).expanduser()
     path = (raw if raw.is_absolute() else cwd / raw).resolve()
-    if not path.is_file():
-        raise ProtocolError(INVALID_PARAMS, f"Attachment not found: {item['path']}")
     display = _display_path(path, cwd)
 
     start = _optional_line(item.get("startLine"), "startLine")
     end = _optional_line(item.get("endLine"), "endLine")
     if start is not None and end is not None and end < start:
         raise ProtocolError(INVALID_PARAMS, "endLine must not be before startLine")
+
+    # The client may send the text itself (e.g. an editor selection with
+    # unsaved changes); line numbers then only label it.
+    content = item.get("content")
+    if content is not None:
+        if not isinstance(content, str):
+            raise ProtocolError(INVALID_PARAMS, "content must be a string")
+        if len(content.encode("utf-8")) > MAX_ATTACHMENT_SIZE:
+            raise ProtocolError(
+                INVALID_PARAMS,
+                f"Attachment is larger than {MAX_ATTACHMENT_SIZE // 1_000_000} MB: {display}",
+            )
+        if start is not None:
+            display = f"{display} (lines {start}-{end or start})"
+        return FileAttachment(path, content, display)
+
+    if not path.is_file():
+        raise ProtocolError(INVALID_PARAMS, f"Attachment not found: {item['path']}")
 
     if _is_image_file(path):
         if start is not None or end is not None:

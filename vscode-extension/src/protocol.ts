@@ -64,6 +64,8 @@ export interface Attachment {
   path: string;
   startLine?: number;
   endLine?: number;
+  /** The text itself (e.g. a selection with unsaved edits); else read from disk. */
+  content?: string;
 }
 
 export interface ChatSendParams {

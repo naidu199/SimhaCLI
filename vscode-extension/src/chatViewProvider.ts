@@ -6,8 +6,9 @@ import * as vscode from "vscode";
 import type { ChatActions } from "./actions";
 import type { ApprovalCoordinator, ApprovalSurface } from "./approvals";
 import { BackendController, errorMessage } from "./controller";
-import type { ApprovalRequestParams, SessionSummary, TranscriptMessage } from "./protocol";
-import type { FromPanel, NoticeKind, PanelAttachment, ToPanel } from "./webviewMessages";
+import type { EditorTracker } from "./editorTracker";
+import type { ApprovalRequestParams, Attachment, SessionSummary, TranscriptMessage } from "./protocol";
+import type { EditorContextUse, FromPanel, NoticeKind, PanelAttachment, ToPanel } from "./webviewMessages";
 
 const TITLE_LENGTH = 40;
 
@@ -30,9 +31,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ApprovalSur
     private readonly extensionUri: vscode.Uri,
     private readonly controller: BackendController,
     private readonly output: vscode.OutputChannel,
+    private readonly editors: EditorTracker,
   ) {
     this.disposables.push(
       this.postedEmitter,
+      editors.onDidChange((context) => this.post({ type: "editorContext", context })),
       controller.onDidChangeState((state) => this.post({ type: "state", state })),
       controller.onAgentEvent((e) =>
         this.post({ type: "agentEvent", turnId: e.turnId, event: e.type, data: e.data }),
@@ -91,13 +94,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ApprovalSur
     }
   }
 
-  /** Same path as the panel's Send button. */
-  async send(text: string, attachments: PanelAttachment[] = []): Promise<void> {
+  /** Resolves once the panel has loaded (or after a timeout). */
+  async whenReady(timeoutMs = 10000): Promise<boolean> {
+    await this.reveal();
+    const deadline = Date.now() + timeoutMs;
+    while (!this.ready && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return this.ready;
+  }
+
+  /**
+   * Same path as the panel's Send button. `editorContext` adds the active
+   * editor's selection (or file), read fresh from the editor at send time.
+   */
+  async send(
+    text: string,
+    attachments: (PanelAttachment | Attachment)[] = [],
+    editorContext: EditorContextUse = "none",
+  ): Promise<void> {
     try {
-      const turnId = await this.controller.send(
-        text,
-        attachments.map(({ path, startLine, endLine }) => ({ path, startLine, endLine })),
-      );
+      const fromEditor = this.editors.attachment(editorContext);
+      const all: Attachment[] = [
+        ...(fromEditor ? [fromEditor] : []),
+        ...attachments.map(({ path, startLine, endLine, content }: Attachment) => ({ path, startLine, endLine, content })),
+      ];
+      const turnId = await this.controller.send(text, all);
       if (!this.chatTitle) {
         this.setTitle(text);
       }
@@ -142,6 +164,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ApprovalSur
     this.postUi({ type: "history", sessions });
   }
 
+  /** Send a message on the user's behalf (e.g. "Review with SimhaCLI"). */
+  async sendFromExtension(text: string, attachment: Attachment, label: string): Promise<void> {
+    await this.whenReady();
+    this.postUi({ type: "userMessage", text, labels: [label] });
+    await this.send(text, [attachment], "none");
+  }
+
+  /** Put text in the message box and focus it (the user finishes the request). */
+  prefill(text: string): void {
+    this.postUi({ type: "prefill", text });
+  }
+
   dispose(): void {
     for (const disposable of this.disposables) {
       disposable.dispose();
@@ -156,12 +190,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ApprovalSur
       case "ready":
         this.ready = true;
         this.post({ type: "state", state: this.controller.currentState });
+        this.post({ type: "editorContext", context: this.editors.current });
         for (const queued of this.queued.splice(0)) {
           this.post(queued);
         }
         break;
       case "send":
-        await this.send(message.text, message.attachments ?? []);
+        await this.send(message.text, message.attachments ?? [], message.editorContext ?? "none");
         break;
       case "cancel":
         try {
@@ -184,6 +219,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ApprovalSur
         break;
       case "attachActiveEditor":
         await actions?.attachActiveEditor();
+        break;
+      case "attachFiles":
+        await actions?.pickFilesToAttach();
         break;
       case "copy":
         await actions?.copy(message.text);
@@ -278,7 +316,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ApprovalSur
         <div id="attachments" class="attachments" hidden></div>
         <textarea id="input" rows="1" placeholder="Ask SimhaCLI anything…" aria-label="Message"></textarea>
         <div class="composer-toolbar">
-          <button id="attach" type="button" class="icon-button" title="Attach the current file or selection" aria-label="Attach the current file or selection"></button>
+          <button id="attach" type="button" class="icon-button" title="Attach files" aria-label="Attach files"></button>
           <button id="model" type="button" class="pill" title="Change model"></button>
           <button id="mode" type="button" class="pill mode" title="Approval mode" aria-haspopup="menu"></button>
           <span class="spacer"></span>

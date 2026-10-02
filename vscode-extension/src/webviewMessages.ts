@@ -35,6 +35,20 @@ export interface PanelAttachment {
 
 export type NoticeKind = "info" | "error";
 
+/** The active editor as shown in the composer (tracked automatically). */
+export interface PanelEditorContext {
+  /** File name relative to the workspace, e.g. "src/app.py". */
+  fileLabel: string;
+  /** With the selected lines when there is a selection, e.g. "src/app.py:33-46". */
+  label: string;
+  hasSelection: boolean;
+  /** Number of selected lines (0 without a selection). */
+  lineCount: number;
+}
+
+/** What to send from the active editor along with a message. */
+export type EditorContextUse = "selection" | "file" | "none";
+
 /** Extension → panel. */
 export type ToPanel =
   | { type: "state"; state: PanelState }
@@ -49,18 +63,22 @@ export type ToPanel =
   | { type: "loadTranscript"; title: string | null; messages: TranscriptMessage[]; warning?: string }
   | { type: "cleared" }
   | { type: "notice"; text: string; kind: NoticeKind }
-  | { type: "history"; sessions: SessionSummary[] };
+  | { type: "history"; sessions: SessionSummary[] }
+  | { type: "editorContext"; context: PanelEditorContext | null }
+  | { type: "userMessage"; text: string; labels: string[] }
+  | { type: "prefill"; text: string };
 
 /** Panel → extension. */
 export type FromPanel =
   | { type: "ready" }
-  | { type: "send"; text: string; attachments: PanelAttachment[] }
+  | { type: "send"; text: string; attachments: PanelAttachment[]; editorContext?: EditorContextUse }
   | { type: "cancel" }
   | { type: "restartBackend" }
   | { type: "showLogs" }
   | { type: "approvalResponse"; id: string; approved: boolean }
   | { type: "viewDiff"; id: string }
   | { type: "attachActiveEditor" }
+  | { type: "attachFiles" }
   | { type: "copy"; text: string }
   | { type: "openLink"; href: string }
   | { type: "pickModel" }

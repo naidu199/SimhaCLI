@@ -64,6 +64,21 @@
         "category": "SimhaCLI"
       },
       {
+        "command": "simhacli.modifySelection",
+        "title": "Modify with SimhaCLI",
+        "category": "SimhaCLI"
+      },
+      {
+        "command": "simhacli.reviewSelection",
+        "title": "Review with SimhaCLI",
+        "category": "SimhaCLI"
+      },
+      {
+        "command": "simhacli.explainSelection",
+        "title": "Explain with SimhaCLI",
+        "category": "SimhaCLI"
+      },
+      {
         "command": "simhacli.addFileToChat",
         "title": "Add Current File to Chat",
         "category": "SimhaCLI"
@@ -157,13 +172,8 @@
       ],
       "editor/context": [
         {
-          "command": "simhacli.askAboutSelection",
-          "when": "editorHasSelection && resourceScheme == file",
-          "group": "simhacli@1"
-        },
-        {
-          "command": "simhacli.addFileToChat",
-          "when": "!editorHasSelection && resourceScheme == file",
+          "submenu": "simhacli.editor",
+          "when": "resourceScheme == file || resourceScheme == untitled",
           "group": "simhacli@1"
         }
       ],
@@ -171,9 +181,48 @@
         {
           "command": "simhacli.askAboutSelection",
           "when": "editorHasSelection"
+        },
+        {
+          "command": "simhacli.modifySelection",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "simhacli.reviewSelection",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "simhacli.explainSelection",
+          "when": "editorHasSelection"
+        }
+      ],
+      "simhacli.editor": [
+        {
+          "command": "simhacli.modifySelection",
+          "when": "editorHasSelection",
+          "group": "1_selection@1"
+        },
+        {
+          "command": "simhacli.reviewSelection",
+          "when": "editorHasSelection",
+          "group": "1_selection@2"
+        },
+        {
+          "command": "simhacli.explainSelection",
+          "when": "editorHasSelection",
+          "group": "1_selection@3"
+        },
+        {
+          "command": "simhacli.addFileToChat",
+          "group": "2_file@1"
         }
       ]
-    }
+    },
+    "submenus": [
+      {
+        "id": "simhacli.editor",
+        "label": "SimhaCLI"
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.mjs",

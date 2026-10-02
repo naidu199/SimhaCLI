@@ -3,7 +3,15 @@
 
 import { APPROVAL_MODES, approvalMode } from "../approvalModes";
 import type { ApprovalRequestParams, SessionSummary, TranscriptMessage } from "../protocol";
-import type { FromPanel, NoticeKind, PanelAttachment, PanelState, ToPanel } from "../webviewMessages";
+import type {
+  EditorContextUse,
+  FromPanel,
+  NoticeKind,
+  PanelAttachment,
+  PanelEditorContext,
+  PanelState,
+  ToPanel,
+} from "../webviewMessages";
 import { button, byId, el, shorten } from "./dom";
 import { renderHistory } from "./history";
 import { icons } from "./icons";
@@ -47,6 +55,9 @@ let attachments: PanelAttachment[] = [];
 /** Attachments of the last sent message, restored if sending fails. */
 let lastSentAttachments: PanelAttachment[] = [];
 let historySessions: SessionSummary[] = [];
+/** The active editor (tracked by the extension) and whether to send it. */
+let editorContext: PanelEditorContext | null = null;
+let editorContextIncluded = false;
 
 // Per-turn rendering state
 let turnBody: HTMLElement | null = null;
@@ -149,13 +160,13 @@ function renderWelcome(): void {
   if (messagesEl.children.length > 0) return;
   const welcome = el("div", "welcome");
   const logo = el("div", "welcome-logo");
-  logo.innerHTML = icons.logo(36);
+  logo.innerHTML = icons.logo(26);
   const heading = el("h2", "welcome-title", "What can I help you build?");
   const intro = el("p", "welcome-intro");
-  intro.append("SimhaCLI reads, edits and runs code in ", el("strong", "", workspaceName()), ". You approve anything risky.");
+  intro.append("Reads, edits and runs code in ", el("strong", "", workspaceName()), ". Asks before anything risky.");
   const suggestions = el("div", "suggestions");
   for (const suggestion of SUGGESTIONS) {
-    const card = button("", "suggestion", () => {
+    const row = button("", "suggestion", () => {
       input.value = suggestion.prompt;
       autosize();
       updateButtons();
@@ -164,12 +175,14 @@ function renderWelcome(): void {
     });
     const icon = el("span", "suggestion-icon");
     icon.innerHTML = suggestion.icon();
-    card.append(icon, el("span", "suggestion-title", suggestion.title));
-    suggestions.append(card);
+    row.append(icon, el("span", "suggestion-title", suggestion.title));
+    suggestions.append(row);
   }
-  const tip = el("p", "welcome-tip");
-  tip.append("Tip: select code, right-click and choose ", el("strong", "", "Ask About Selection"), ".");
-  welcome.append(logo, heading, intro, suggestions, tip);
+  const hint = el("p", "welcome-hint");
+  const hintIcon = el("span", "welcome-hint-icon");
+  hintIcon.innerHTML = icons.selection(12);
+  hint.append(hintIcon, "Select code in the editor and it's added to your message automatically.");
+  welcome.append(logo, heading, intro, suggestions, hint);
   messagesEl.append(welcome);
 }
 
@@ -602,9 +615,40 @@ function closeModeMenu(): void {
   modeButton.setAttribute("aria-expanded", "false");
 }
 
+function editorContextUse(): EditorContextUse {
+  if (!editorContext || !editorContextIncluded) return "none";
+  return editorContext.hasSelection ? "selection" : "file";
+}
+
+/** Chip for the active editor: a selection is included by default, a whole file on request. */
+function contextChip(context: PanelEditorContext): HTMLElement {
+  const chip = el("button", `chip context-chip${editorContextIncluded ? " included" : ""}${context.hasSelection ? " selection" : ""}`);
+  chip.type = "button";
+  const icon = el("span", "chip-icon");
+  icon.innerHTML = editorContextIncluded
+    ? context.hasSelection ? icons.selection() : icons.file()
+    : icons.plus();
+  chip.append(icon, el("span", "chip-label", context.label));
+  if (context.hasSelection) {
+    chip.append(el("span", "chip-meta", `${context.lineCount} line${context.lineCount === 1 ? "" : "s"}`));
+  }
+  chip.title = editorContextIncluded
+    ? `${context.hasSelection ? "Selected lines" : "This file"} will be sent with your message. Click to leave it out.`
+    : `Click to send ${context.hasSelection ? "the selected lines" : "this file"} with your message.`;
+  chip.setAttribute("aria-pressed", String(editorContextIncluded));
+  chip.addEventListener("click", () => {
+    editorContextIncluded = !editorContextIncluded;
+    renderAttachments();
+  });
+  return chip;
+}
+
 function renderAttachments(): void {
   attachmentsEl.replaceChildren();
-  attachmentsEl.hidden = attachments.length === 0;
+  attachmentsEl.hidden = attachments.length === 0 && !editorContext;
+  if (editorContext) {
+    attachmentsEl.append(contextChip(editorContext));
+  }
   attachments.forEach((attachment, index) => {
     const chip = el("span", "chip", attachment.label);
     chip.title = attachment.path;
@@ -761,6 +805,27 @@ window.addEventListener("message", (event: MessageEvent<ToPanel>) => {
     case "history":
       showHistory(message.sessions);
       break;
+    case "editorContext": {
+      const previous = editorContext?.label;
+      editorContext = message.context;
+      // A new selection is included by default; a plain file only on request
+      if (editorContext && editorContext.label !== previous) {
+        editorContextIncluded = editorContext.hasSelection;
+      }
+      renderAttachments();
+      break;
+    }
+    case "userMessage":
+      showView("chat");
+      addUserMessage(message.text, message.labels);
+      break;
+    case "prefill":
+      showView("chat");
+      input.value = message.text;
+      autosize();
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+      break;
   }
   updateButtons();
 });
@@ -788,8 +853,10 @@ function submit(): void {
   const text = input.value.trim();
   if (!text || sendButton.disabled) return;
   closeModeMenu();
-  addUserMessage(text, attachments.map((a) => a.label));
-  vscode.postMessage({ type: "send", text, attachments });
+  const use = editorContextUse();
+  const labels = [...(use !== "none" && editorContext ? [editorContext.label] : []), ...attachments.map((a) => a.label)];
+  addUserMessage(text, labels);
+  vscode.postMessage({ type: "send", text, attachments, editorContext: use });
   input.value = "";
   autosize();
   lastSentAttachments = attachments;
@@ -813,7 +880,7 @@ input.addEventListener("input", () => {
   updateButtons();
 });
 stopButton.addEventListener("click", () => vscode.postMessage({ type: "cancel" }));
-attachButton.addEventListener("click", () => vscode.postMessage({ type: "attachActiveEditor" }));
+attachButton.addEventListener("click", () => vscode.postMessage({ type: "attachFiles" }));
 modelButton.addEventListener("click", () => vscode.postMessage({ type: "pickModel" }));
 modeButton.addEventListener("click", (event) => {
   event.stopPropagation();

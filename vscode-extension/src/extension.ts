@@ -3,8 +3,10 @@ import * as vscode from "vscode";
 import { ChatActions } from "./actions";
 import { ApprovalCoordinator } from "./approvals";
 import { ChatViewProvider } from "./chatViewProvider";
+import { SimhaCodeActionProvider } from "./codeActions";
 import { BackendController } from "./controller";
 import { DiffContentProvider } from "./diffs";
+import { EditorTracker } from "./editorTracker";
 
 let controller: BackendController | undefined;
 
@@ -14,6 +16,7 @@ export interface SimhaCliExtensionApi {
   chatView: ChatViewProvider;
   approvals: ApprovalCoordinator;
   actions: ChatActions;
+  editors: EditorTracker;
   /** This extension's `vscode.window`, so tests can answer its dialogs. */
   window: typeof vscode.window;
 }
@@ -23,7 +26,8 @@ export function activate(context: vscode.ExtensionContext): SimhaCliExtensionApi
   const version = String(context.extension.packageJSON.version ?? "0.0.0");
 
   controller = new BackendController(output, version);
-  const chatView = new ChatViewProvider(context.extensionUri, controller, output);
+  const editors = new EditorTracker();
+  const chatView = new ChatViewProvider(context.extensionUri, controller, output, editors);
   const approvals = new ApprovalCoordinator(chatView);
   const diffs = new DiffContentProvider();
   const actions = new ChatActions(controller, chatView, approvals, diffs);
@@ -34,8 +38,14 @@ export function activate(context: vscode.ExtensionContext): SimhaCliExtensionApi
   context.subscriptions.push(
     output,
     controller,
+    editors,
     chatView,
     diffs,
+    vscode.languages.registerCodeActionsProvider(
+      [{ scheme: "file" }, { scheme: "untitled" }],
+      new SimhaCodeActionProvider(),
+      SimhaCodeActionProvider.metadata,
+    ),
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, chatView, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
@@ -48,7 +58,16 @@ export function activate(context: vscode.ExtensionContext): SimhaCliExtensionApi
     }),
     command("simhacli.newChat", () => actions.newChat()),
     command("simhacli.history", () => actions.showHistory()),
-    command("simhacli.askAboutSelection", () => actions.attachActiveEditor()),
+    command("simhacli.askAboutSelection", () => actions.askWithSelection("modify")),
+    vscode.commands.registerCommand("simhacli.modifySelection", (uri?: vscode.Uri, range?: vscode.Range) =>
+      actions.askWithSelection("modify", uri, range),
+    ),
+    vscode.commands.registerCommand("simhacli.reviewSelection", (uri?: vscode.Uri, range?: vscode.Range) =>
+      actions.askWithSelection("review", uri, range),
+    ),
+    vscode.commands.registerCommand("simhacli.explainSelection", (uri?: vscode.Uri, range?: vscode.Range) =>
+      actions.askWithSelection("explain", uri, range),
+    ),
     command("simhacli.addFileToChat", () => actions.attachActiveEditor()),
     command("simhacli.changeModel", () => actions.changeModel()),
     command("simhacli.changeApproval", () => actions.changeApproval()),
@@ -59,7 +78,7 @@ export function activate(context: vscode.ExtensionContext): SimhaCliExtensionApi
   );
 
   void controller.start();
-  return { controller, chatView, approvals, actions, window: vscode.window };
+  return { controller, chatView, approvals, actions, editors, window: vscode.window };
 }
 
 export async function deactivate(): Promise<void> {

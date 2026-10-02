@@ -71,7 +71,7 @@ Ids are unique per sender. Server-initiated requests use string ids (`"s1"`, `"s
 | Method | Params | Result |
 |---|---|---|
 | `initialize` | `{cwd?, clientName?, clientVersion?, protocolVersion?}` | `{serverVersion, protocolVersion, cwd, model, approval, sessionId, needsCredentials}`. `clientName` is recorded as the saved chat's source. |
-| `chat/send` | `{text, attachments?: [{path, startLine?, endLine?}]}` | `{turnId}`; output arrives as `agent/event` notifications |
+| `chat/send` | `{text, attachments?: [{path, startLine?, endLine?, content?}]}` | `{turnId}`; output arrives as `agent/event` notifications |
 | `chat/cancel` | `{turnId}` | `{cancelled: bool}` |
 | `sessions/list` | `{limit?}` | `{sessions: [{id, title, createdAt, updatedAt, messageCount, cwd, model, source, isCurrent}]}` |
 | `sessions/history` | `{id?}` (default: current chat) | `{id, title, messages: [{role, text, toolCalls: [{name, arguments}]}]}` |
@@ -253,6 +253,7 @@ Changes from the original list:
 - Markdown uses markdown-it with raw HTML disabled (model output can't inject markup or `javascript:` links); code blocks use highlight.js colored with theme variables.
 - Fixed: paths shown absolute (e.g. `/private/var/...`) when the workspace is reached through a symlink; paths are now made relative to the backend's resolved cwd.
 - **UI redesign (after review):** welcome screen with suggestions; your messages as right-aligned bubbles and one grouped block per SimhaCLI reply; tool rows with readable labels ("Read app.py", "Run npm test"); a single composer box with model and mode chips; approval modes colored by risk (green: Always ask / Never run, blue: Ask / Auto-edit, orange: On failure / Auto-approve, red: YOLO) with an in-panel mode menu; chat history inside the panel (grouped by date, search, delete with confirmation). Verified with panel tests 50/50, integration 20/20, and screenshots in dark and light themes.
+- **Selection features (after review):** the composer tracks the active editor automatically: a selection (e.g. `main.py:33-46 · 14 lines`) is included with the next message by default, a plain file on one click; unsaved edits are sent as shown (`chat/send` attachments accept `content`). Modify / Review / Explain with SimhaCLI appear in the editor's code-action menu under Rewrite (next to Copilot's actions; VS Code reserves the ✨ icon itself for a proposed API) and in a SimhaCLI right-click submenu. The paperclip attaches any workspace files. Compact welcome list; the right-click tip is gone. Verified: server test 49/49 (rebuilt outside the repo), panel 60/60, selection integration 10/10, M4 integration 20/20, M3 integration 14/14.
 
 ### M5: Polish & packaging
 

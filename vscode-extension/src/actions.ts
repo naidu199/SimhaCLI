@@ -6,10 +6,20 @@ import * as vscode from "vscode";
 
 import type { ApprovalCoordinator } from "./approvals";
 import type { ChatViewProvider } from "./chatViewProvider";
+import type { SelectionIntent } from "./codeActions";
 import type { BackendController } from "./controller";
 import type { DiffContentProvider } from "./diffs";
 import { activeEditorAttachment } from "./editorContext";
+import { rangeAttachment, rangeLabel } from "./editorTracker";
 import { messageOf, pickApproval, pickCredentials, pickModel, pickRevert } from "./pickers";
+
+const SELECTION_PROMPTS: Record<Exclude<SelectionIntent, "modify">, string> = {
+  review:
+    "Review this code. Point out bugs, edge cases, and readability or performance problems, most important first. Don't change any files.",
+  explain: "Explain what this code does, step by step, and call out anything surprising.",
+};
+
+const ATTACH_EXCLUDE = "{**/node_modules/**,**/.git/**,**/__pycache__/**,**/.venv/**,**/venv/**,**/dist/**,**/build/**}";
 
 export class ChatActions {
   constructor(
@@ -69,6 +79,65 @@ export class ChatActions {
       );
     }
     this.chatView.focusInput();
+  }
+
+  /** Modify / Review / Explain the selected code (code-action menu, commands). */
+  async askWithSelection(intent: SelectionIntent, uri?: vscode.Uri, range?: vscode.Range): Promise<void> {
+    await this.run("use the selection", async () => {
+      const editor = vscode.window.activeTextEditor;
+      const document = uri ? await vscode.workspace.openTextDocument(uri) : editor?.document;
+      const selection = range ?? editor?.selection;
+      if (!document || !selection || selection.isEmpty) {
+        void vscode.window.showInformationMessage("Select some code first.");
+        return;
+      }
+      if (intent === "modify") {
+        // The selection is already shown in the composer (tracked automatically);
+        // the user only has to say what to change.
+        await this.chatView.whenReady();
+        this.chatView.prefill("Change this code to ");
+        return;
+      }
+      await this.chatView.sendFromExtension(
+        SELECTION_PROMPTS[intent],
+        rangeAttachment(document, selection),
+        rangeLabel(document, selection),
+      );
+    });
+  }
+
+  /** Paperclip: pick any workspace files to attach to the next message. */
+  async pickFilesToAttach(): Promise<void> {
+    await this.run("attach files", async () => {
+      const files = await vscode.workspace.findFiles("**/*", ATTACH_EXCLUDE, 5000);
+      const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
+      const items = files
+        .map((uri) => {
+          const relative = vscode.workspace.asRelativePath(uri, false);
+          return {
+            label: path.basename(relative),
+            description: path.dirname(relative) === "." ? "" : path.dirname(relative),
+            relative,
+            uri,
+          };
+        })
+        .sort((a, b) =>
+          a.uri.fsPath === activePath ? -1 : b.uri.fsPath === activePath ? 1 : a.relative.localeCompare(b.relative),
+        );
+      const picked = await vscode.window.showQuickPick(items, {
+        title: "SimhaCLI: Attach Files",
+        placeHolder: "Search files to attach to your message",
+        canPickMany: true,
+        matchOnDescription: true,
+      });
+      if (!picked?.length) {
+        return;
+      }
+      for (const item of picked) {
+        this.chatView.addAttachment({ path: item.uri.fsPath, label: item.relative });
+      }
+      this.chatView.focusInput();
+    });
   }
 
   async changeModel(): Promise<void> {
