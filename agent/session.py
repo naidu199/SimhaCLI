@@ -1,8 +1,11 @@
 from datetime import datetime
+from pathlib import Path
 import json
 from typing import Any
 import uuid
+from agent.state import SessionSnapshot, make_session_title
 from client.llm_client import LLMClient
+from client.response import TokenUsage
 
 from config.config import Config
 from config.loader import get_data_dir
@@ -83,6 +86,60 @@ class Session:
             return "\n".join(lines)
         except Exception:
             return None
+
+    def has_conversation(self) -> bool:
+        """True once the user has sent at least one message."""
+        if not self.context_manager:
+            return False
+        return any(
+            msg.get("role") == "user" for msg in self.context_manager.get_messages()
+        )
+
+    def to_snapshot(self, source: str = "cli") -> SessionSnapshot:
+        messages = self.context_manager.get_messages() if self.context_manager else []
+        return SessionSnapshot(
+            session_id=self.session_id,
+            created_at=self.created_at,
+            updated_at=datetime.now(),
+            turn_count=self.turn_count,
+            messages=messages,
+            total_usage=(
+                self.context_manager.total_usage
+                if self.context_manager
+                else TokenUsage()
+            ),
+            title=make_session_title(messages),
+            cwd=str(Path(self.config.cwd).resolve()),
+            model=self.config.model.name,
+            source=source,
+        )
+
+    def restore_snapshot(self, snapshot: SessionSnapshot) -> None:
+        """Continue a saved conversation in this (already initialized) session.
+
+        The current system prompt is kept so tools, git context and project
+        instructions reflect the present environment.
+        """
+        self.session_id = snapshot.session_id
+        self.created_at = snapshot.created_at
+        self.updated_at = snapshot.updated_at
+        self.turn_count = snapshot.turn_count
+        self.context_manager.set_messages(
+            [m for m in snapshot.messages if m.get("role") != "system"]
+        )
+        self.context_manager.total_usage = snapshot.total_usage
+        self.loop_detector.clear()
+
+    def start_new(self) -> None:
+        """Start a fresh conversation under a new session id."""
+        self.session_id = str(uuid.uuid4())
+        self.created_at = datetime.now()
+        self.updated_at = datetime.now()
+        self.turn_count = 0
+        if self.context_manager:
+            self.context_manager.clear()
+            self.context_manager.total_usage = TokenUsage()
+        self.loop_detector.clear()
 
     def increment_turn_count(self) -> None:
         self.turn_count += 1

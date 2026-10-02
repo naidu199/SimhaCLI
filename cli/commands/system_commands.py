@@ -81,13 +81,16 @@ class ClearCommand(Command):
         if not agent or not console:
             return CommandResult(success=False, message="No active session to clear")
 
-        agent.session.context_manager.clear()
-        agent.session.loop_detector.clear()
+        had_conversation = agent.session.has_conversation()
+        agent.session.start_new()
         console.print("[success]Conversation cleared[/success]")
+        config = context.get("config")
+        if had_conversation and config and config.auto_save_sessions:
+            console.print("[dim]The previous chat is saved — see /sessions.[/dim]")
         return CommandResult(success=True)
 
     def get_help(self) -> str:
-        return "Clear conversation history"
+        return "Start a new conversation (the previous chat stays in /sessions)"
 
 
 class StatsCommand(Command):

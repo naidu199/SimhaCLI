@@ -124,7 +124,7 @@ main.py (SimhaCLI + main())
 ### Session Management
 
 - `Session` (`agent/session.py`) — encapsulates LLM client, context manager, tool registry, loop detector, MCP manager
-- `StateManager` / `SessionSnapshot` (`agent/state.py`) — save/resume sessions, checkpoints to disk
+- `StateManager` / `SessionSnapshot` (`agent/state.py`) — save/resume sessions, checkpoints to disk; every chat is auto-saved when `auto_save_sessions` is on
 - User memory loaded from `user_memory.json` in data directory
 
 ### TUI (Terminal UI)
@@ -222,8 +222,9 @@ Available in REPL mode (prefix with `/`):
 | `/mcp`               | Show MCP server status                               |
 | `/stats`             | Show session statistics                              |
 | `/save`              | Save session to disk                                 |
-| `/sessions`          | List saved sessions                                  |
-| `/resume <id>`       | Resume a session                                     |
+| `/sessions`          | List saved chats (auto-saved)                        |
+| `/history [n]`       | Show a chat's messages                               |
+| `/resume [n]`        | Continue a saved chat                                |
 | `/checkpoint`        | Create checkpoint                                    |
 | `/restore <id>`      | Restore checkpoint                                   |
 | `/undo`              | Undo last file edit                                  |

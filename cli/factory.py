@@ -20,6 +20,7 @@ from .commands import (
     CredsAliasCommand,
     SaveCommand,
     SessionsCommand,
+    HistoryCommand,
     ResumeCommand,
     CheckpointCommand,
     RestoreCommand,
@@ -57,6 +58,7 @@ def create_command_registry() -> CommandRegistry:
     # Session commands
     registry.register(SaveCommand())
     registry.register(SessionsCommand())
+    registry.register(HistoryCommand())
     registry.register(ResumeCommand())
     registry.register(CheckpointCommand())
     registry.register(RestoreCommand())

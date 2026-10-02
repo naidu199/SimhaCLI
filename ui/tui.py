@@ -130,8 +130,9 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/mcp", "show MCP server status"),
     ("/approval", "change tool approval policy"),
     ("/save", "save current session"),
-    ("/sessions", "list saved sessions"),
-    ("/resume", "restore a saved session"),
+    ("/sessions", "list saved chats"),
+    ("/history", "show a chat's messages"),
+    ("/resume", "continue a saved chat"),
     ("/checkpoint", "create a named checkpoint"),
     ("/restore", "restore a checkpoint"),
     ("/credentials", "manage API key / base URL"),
@@ -1534,7 +1535,7 @@ class TUI:
 - `/version` - Show SimhaCLI version
 - `/exit` or `/quit` - Exit the agent
 - `q` - Stop agent & return to input (Ctrl+C also works)
-- `/clear` - Clear conversation history
+- `/clear` - Start a new conversation (the previous chat stays in /sessions)
 - `/config` - Show current configuration
 - `/model <name>` - Change the model
 - `/approval <mode>` - Change approval mode
@@ -1545,8 +1546,10 @@ class TUI:
 - `/checkpoint [name]` - Create a checkpoint
 - `/checkpoints` - List available checkpoints
 - `/restore <checkpoint_id>` - Restore a checkpoint
-- `/sessions` - List saved sessions
-- `/resume <session_id>` - Resume a saved session
+- `/sessions [all]` - List saved chats (every chat is saved automatically)
+- `/sessions delete <number|id>` - Delete a saved chat
+- `/history [number|id]` - Show a chat's messages (default: current chat)
+- `/resume [number|id]` - Continue a saved chat (no argument: pick from the list)
 - `/undo` - Selectively undo file changes (menu to choose which files)
 - `/run <cmd>` or `/! <cmd>` - Run terminal command directly
 - `/permissions` - View and toggle tool permissions

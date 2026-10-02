@@ -139,6 +139,7 @@ max_tool_output_tokens = 50000
 
 approval = "on_request"      # on_request, always, auto_approve, auto_edit, on_failure, yolo, never
 hooks_enabled = true
+auto_save_sessions = true   # save every chat for /sessions, /history, /resume
 developer_instructions = "..."
 user_instructions = "..."
 
@@ -167,7 +168,8 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
 ### Session Management
 
 - **Session** (`agent/session.py`) — encapsulates LLM client, context manager, tool registry, MCP manager, approval manager, hook system, loop detector, chat compressor
-- **StateManager / SessionSnapshot** (`agent/state.py`) — save/resume/checkpoint/restore to disk (JSON in data directory)
+- **StateManager / SessionSnapshot** (`agent/state.py`) — save/resume/checkpoint/restore to disk (JSON in `<data dir>/sessions/`)
+- **Auto-save** — when `auto_save_sessions` is true (default), `main.py` saves the chat after every message and the Telegram bot after every run (`Session.to_snapshot()`); `/clear` starts a new session id so earlier chats stay listed. `simhacli --continue` / `--resume <id>` reopen a chat via `Session.restore_snapshot()`
 - **User memory** — loaded from `user_memory.json` in data directory (`platformdirs.user_data_dir("simhacli")`)
 
 ### Approval & Safety
@@ -383,9 +385,10 @@ Each command inherits from `Command` base class (`base.py`) and implements `exec
 | `/approval` | model_commands.py | Change approval policy |
 | `/credentials` | model_commands.py | View/update API key and base URL |
 | `/creds` | model_commands.py | Alias for `/credentials` |
-| `/save` | session_commands.py | Save session to disk |
-| `/sessions` | session_commands.py | List saved sessions |
-| `/resume` | session_commands.py | Resume a session |
+| `/save` | session_commands.py | Save session to disk (chats are also auto-saved) |
+| `/sessions` | session_commands.py | List saved chats (`all`, `delete <n>`) |
+| `/history` | session_commands.py | Show a chat's messages (current or saved) |
+| `/resume` | session_commands.py | Continue a saved chat by number, id or id prefix |
 | `/checkpoint` | session_commands.py | Create checkpoint of current session |
 | `/restore` | session_commands.py | Restore a checkpoint |
 | `/permissions` | permissions_commands.py | Manage tool allow/deny lists |

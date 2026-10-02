@@ -4,7 +4,7 @@ from .base import Command, CommandResult
 from .registry import CommandRegistry, get_command_registry
 from .system_commands import BotCommand, HelpCommand, ConfigCommand, ClearCommand, StatsCommand, ToolsCommand, McpCommand, ExitCommand, QuitCommand, VersionCommand
 from .model_commands import ModelCommand, ApprovalCommand, CredentialsCommand, CredsAliasCommand
-from .session_commands import SaveCommand, SessionsCommand, ResumeCommand, CheckpointCommand, RestoreCommand
+from .session_commands import SaveCommand, SessionsCommand, HistoryCommand, ResumeCommand, CheckpointCommand, RestoreCommand
 from .permissions_commands import PermissionsCommand
 from .workflow_commands import WorkflowCommand
 from .init_commands import InitCommand
@@ -33,6 +33,7 @@ __all__ = [
     "CredsAliasCommand",
     "SaveCommand",
     "SessionsCommand",
+    "HistoryCommand",
     "ResumeCommand",
     "CheckpointCommand",
     "RestoreCommand",

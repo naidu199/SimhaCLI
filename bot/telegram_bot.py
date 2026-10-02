@@ -34,6 +34,7 @@ from telegram.error import BadRequest
 
 from agent.agent import Agent
 from agent.events import AgentEventType
+from agent.state import StateManager
 from config.config import Config
 from utils.file_attachments import (
     format_message_with_attachments,
@@ -102,10 +103,12 @@ async def _dispatch_repl_command(
     # /clear: the bot keeps context in session_state between runs
     if cmd_name == "/clear":
         session_state.pop("messages", None)
+        # Start a new saved chat; the previous one stays in /sessions
+        session_state.pop("session_id", None)
+        session_state.pop("created_at", None)
         agent = session_state.get("agent")
         if agent and agent.session:
-            agent.session.context_manager.clear()
-            agent.session.loop_detector.clear()
+            agent.session.start_new()
         return "🦁 Conversation cleared."
 
     buf = io.StringIO()
@@ -213,6 +216,14 @@ async def _run_agent(
             saved_messages = session_state.get("messages", [])
             if saved_messages and agent.session:
                 agent.session.context_manager.set_messages(saved_messages)
+            # Keep one saved session per Telegram conversation across runs
+            if agent.session:
+                if "session_id" in session_state:
+                    agent.session.session_id = session_state["session_id"]
+                    agent.session.created_at = session_state["created_at"]
+                else:
+                    session_state["session_id"] = agent.session.session_id
+                    session_state["created_at"] = agent.session.created_at
 
             session_state["agent"] = agent
 
@@ -255,6 +266,13 @@ async def _run_agent(
             # Save context
             if agent.session:
                 session_state["messages"] = agent.session.context_manager.get_messages()
+                if cfg.auto_save_sessions and agent.session.has_conversation():
+                    try:
+                        StateManager().save_session(
+                            agent.session.to_snapshot(source="telegram")
+                        )
+                    except Exception:
+                        log.exception("Could not save Telegram chat")
 
         session_state.pop("agent", None)
 

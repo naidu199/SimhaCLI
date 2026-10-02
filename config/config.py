@@ -108,6 +108,10 @@ class Config(BaseModel):
     user_instructions: str | None = None
     approval: ApprovalPolicy = ApprovalPolicy.ON_REQUEST
     hooks_enabled: bool = True
+    auto_save_sessions: bool = Field(
+        True,
+        description="Save every chat to the local sessions directory after each message",
+    )
     hooks: list[HookConfig] = Field(default_factory=list)
     allowed_tools: list[str] | None = Field(
         None,

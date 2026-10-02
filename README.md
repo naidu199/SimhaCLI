@@ -109,7 +109,8 @@ Works with MCP servers when configured, falls back to CLI tools automatically.
 
 ### 💾 Session Management
 
-- Save sessions to disk (`/save`) and resume them later (`/resume <id>`)
+- Every chat is saved automatically to your local data directory — list them with `/sessions`, read one with `/history <n>`, and continue it with `/resume <n>`
+- Pick up where you left off from the shell: `simhacli --continue` (latest chat in this directory) or `simhacli --resume <id>`
 - Create mid-task checkpoints (`/checkpoint` / `/restore <id>`)
 - Undo the last file edit (`/undo`)
 
@@ -202,6 +203,7 @@ max_turns = 72                  # max agentic loop turns per request
 max_tool_output_tokens = 50000  # truncate large tool outputs
 approval = "on_request"         # see Approval Policies below
 hooks_enabled = true
+auto_save_sessions = true   # save every chat locally for /sessions, /history, /resume
 developer_instructions = "Always prefer TypeScript over JavaScript."
 user_instructions = "Be concise."
 
@@ -261,9 +263,10 @@ Type any of these during an interactive session:
 | `/credentials` / `/creds`   | View or update API key / base URL                            |
 | `/permissions`              | Manage tool access permissions (allow/deny/reset)            |
 | `/init`                     | Analyze project and generate AGENTS.md and SIMHACLI.md files |
-| `/save`                     | Save current session to disk                                 |
-| `/sessions`                 | List all saved sessions                                      |
-| `/resume <id>`              | Resume a previously saved session                            |
+| `/save`                     | Save current session to disk (chats also save automatically) |
+| `/sessions [all]`           | List saved chats, newest first (`/sessions delete <n>`)      |
+| `/history [n\|id]`          | Show a saved chat's messages (default: current chat)         |
+| `/resume [n\|id]`           | Continue a saved chat (no argument: pick from the list)      |
 | `/checkpoint`               | Create a checkpoint of the current session                   |
 | `/restore <id>`             | Restore a checkpoint                                         |
 | `/undo`                     | Undo the last file edit (interactive selective revert)       |

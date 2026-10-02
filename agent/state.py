@@ -9,6 +9,38 @@ from typing import Any
 from client.response import TokenUsage
 from config.loader import get_data_dir
 
+SESSION_TITLE_MAX_CHARS = 60
+
+
+def message_text(content: Any) -> str:
+    """Plain text of a message's content (multimodal parts → text + [image])."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict):
+                if part.get("type") == "text":
+                    parts.append(part.get("text", ""))
+                elif part.get("type") == "image_url":
+                    parts.append("[image]")
+        return "\n".join(p for p in parts if p)
+    return str(content)
+
+
+def make_session_title(messages: list[dict[str, Any]]) -> str | None:
+    """Title a session after its first user message."""
+    for msg in messages:
+        if msg.get("role") == "user":
+            text = " ".join(message_text(msg.get("content")).split())
+            if text:
+                if len(text) > SESSION_TITLE_MAX_CHARS:
+                    text = text[: SESSION_TITLE_MAX_CHARS - 1].rstrip() + "…"
+                return text
+    return None
+
 
 @dataclass
 class SessionSnapshot:
@@ -18,10 +50,18 @@ class SessionSnapshot:
     turn_count: int
     messages: list[dict[str, Any]]
     total_usage: TokenUsage
+    title: str | None = None
+    cwd: str | None = None
+    model: str | None = None
+    source: str = "cli"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
+            "title": self.title,
+            "cwd": self.cwd,
+            "model": self.model,
+            "source": self.source,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "turn_count": self.turn_count,
@@ -31,6 +71,7 @@ class SessionSnapshot:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SessionSnapshot:
+        # Older session files have no title/cwd/model/source fields
         return cls(
             session_id=data["session_id"],
             created_at=datetime.fromisoformat(data["created_at"]),
@@ -38,6 +79,10 @@ class SessionSnapshot:
             turn_count=data["turn_count"],
             messages=data["messages"],
             total_usage=TokenUsage(**data["total_usage"]),
+            title=data.get("title") or make_session_title(data["messages"]),
+            cwd=data.get("cwd"),
+            model=data.get("model"),
+            source=data.get("source") or "cli",
         )
 
 
@@ -116,12 +161,20 @@ class StateManager:
             try:
                 with open(file_path, "r", encoding="utf-8") as fp:
                     data = json.load(fp)
+                messages = data.get("messages") or []
                 sessions.append(
                     {
                         "session_id": data["session_id"],
+                        "title": data.get("title") or make_session_title(messages),
+                        "cwd": data.get("cwd"),
+                        "model": data.get("model"),
+                        "source": data.get("source") or "cli",
                         "created_at": data["created_at"],
                         "updated_at": data["updated_at"],
                         "turn_count": data["turn_count"],
+                        "message_count": sum(
+                            1 for m in messages if m.get("role") in ("user", "assistant")
+                        ),
                     }
                 )
             except (OSError, ValueError, KeyError, TypeError):
@@ -130,6 +183,46 @@ class StateManager:
 
         sessions.sort(key=lambda x: x["updated_at"], reverse=True)
         return sessions
+
+    def resolve_session_id(self, ref: str) -> str | None:
+        """Resolve a session reference: list number (1 = newest), full id,
+        or a unique id prefix."""
+        ref = ref.strip()
+        if not ref:
+            return None
+        sessions = self.list_sessions()
+
+        if ref.isdigit() and len(ref) <= 4:
+            index = int(ref)
+            if 1 <= index <= len(sessions):
+                return sessions[index - 1]["session_id"]
+            return None
+
+        if not _is_safe_id(ref):
+            return None
+        ids = [s["session_id"] for s in sessions]
+        if ref in ids:
+            return ref
+        matches = [sid for sid in ids if sid.startswith(ref)]
+        return matches[0] if len(matches) == 1 else None
+
+    def latest_session_id(self, cwd: Path | str | None = None) -> str | None:
+        """Most recently updated session, optionally limited to one directory."""
+        wanted = str(Path(cwd).resolve()) if cwd is not None else None
+        for session in self.list_sessions():
+            if wanted is None or session.get("cwd") == wanted:
+                return session["session_id"]
+        return None
+
+    def delete_session(self, session_id: str) -> bool:
+        if not _is_safe_id(session_id):
+            return False
+        file_path = self.sessions_dir / f"{session_id}.json"
+        try:
+            file_path.unlink()
+        except FileNotFoundError:
+            return False
+        return True
 
     def save_checkpoint(self, snapshot: SessionSnapshot) -> str:
         # Ensure directory exists before writing

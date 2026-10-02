@@ -4,6 +4,7 @@ import click
 from rich.markup import escape
 from agent.agent import Agent
 from agent.events import AgentEventType
+from agent.state import StateManager
 import asyncio
 from config.config import Config
 from config.loader import load_config
@@ -30,12 +31,54 @@ console = get_console()
 
 
 class SimhaCLI:
-    def __init__(self, config: Config) -> None:
+    def __init__(
+        self,
+        config: Config,
+        resume_ref: str | None = None,
+        continue_last: bool = False,
+    ) -> None:
         self.config = config
         self.tui: TUI = TUI(console=console, config=config)
         self.agent: Agent | None = None
         self.command_handler = CommandHandler(create_command_registry())
         self._stop_requested = False
+        self._resume_ref = resume_ref
+        self._continue_last = continue_last
+
+    def _autosave_session(self) -> None:
+        """Persist the current chat so it can be listed and resumed later."""
+        if not self.config.auto_save_sessions or not self.agent:
+            return
+        session = self.agent.session
+        try:
+            if not session or not session.has_conversation():
+                return
+            StateManager().save_session(session.to_snapshot())
+        except Exception as e:
+            console.print(f"[dim]Could not save this chat: {escape(str(e))}[/dim]")
+
+    def _restore_requested_session(self) -> bool:
+        """Apply --resume/--continue. Returns False if the chat wasn't found."""
+        if not self._resume_ref and not self._continue_last:
+            return True
+        state_manager = StateManager()
+        if self._resume_ref:
+            session_id = state_manager.resolve_session_id(self._resume_ref)
+            missing = f"No saved chat matches '{self._resume_ref}'."
+        else:
+            session_id = state_manager.latest_session_id(cwd=self.config.cwd)
+            missing = f"No saved chat for {self.config.cwd}."
+        snapshot = state_manager.load_session(session_id) if session_id else None
+        if not snapshot:
+            console.print(f"[error]{escape(missing)}[/error]")
+            return False
+
+        self.agent.session.restore_snapshot(snapshot)
+        console.print(
+            f"[success]Continuing: {escape(snapshot.title or snapshot.session_id[:8])}[/success] "
+            "[dim](/history to see the full chat)[/dim]"
+        )
+        return True
 
     async def run_single(self, message: str) -> str | None:
         try:
@@ -44,7 +87,12 @@ class SimhaCLI:
                 confirmation_callback=self.tui.handle_confirmation,
             ) as agent:
                 self.agent = agent
-                return await self._process_message(message)
+                if not self._restore_requested_session():
+                    return None
+                try:
+                    return await self._process_message(message)
+                finally:
+                    self._autosave_session()
         finally:
             self.agent = None
 
@@ -62,6 +110,7 @@ class SimhaCLI:
                 f"CWD: {self.config.cwd}",
                 "Commands: /help, /version, /exit, /config, /approval, /model, /credentials, /permissions, /init, /workflow, /undo, /run, /bot",
                 "",
+                "Chats are saved automatically: /sessions to list, /resume to continue, /history to read",
                 "Shortcuts: @attach file | /commands | q=stop agent",
                 "Input: Enter = submit | Esc+Enter = new line",
                 "Type /exit or /quit to exit. Type 'q' to stop agent and wait for input.",
@@ -74,6 +123,8 @@ class SimhaCLI:
                 confirmation_callback=self.tui.handle_confirmation,
             ) as agent:
                 self.agent = agent
+                if not self._restore_requested_session():
+                    console.print("[dim]Starting a new chat. Use /sessions to see saved chats.[/dim]")
 
                 def get_tool_names():
                     if self.agent and self.agent.session:
@@ -166,6 +217,8 @@ class SimhaCLI:
                         except Exception as e:
                             console.print(f"[error]Error: {escape(str(e))}[/error]")
                             continue
+                        finally:
+                            self._autosave_session()
 
                         if self.agent.has_undo_changes():
                             count = self.agent.get_undo_count()
@@ -400,12 +453,28 @@ class SimhaCLI:
     is_flag=True,
     help="Show SimhaCLI version and exit.",
 )
+@click.option(
+    "--resume",
+    "-r",
+    "resume_ref",
+    metavar="ID",
+    default=None,
+    help="Continue a saved chat (number from /sessions, or session id / prefix).",
+)
+@click.option(
+    "--continue",
+    "continue_last",
+    is_flag=True,
+    help="Continue the most recent chat in this directory.",
+)
 @click.pass_context
 def main(
     ctx,
     # prompt: str | None = None,
     cwd: Path | None = None,
     version: bool = False,
+    resume_ref: str | None = None,
+    continue_last: bool = False,
 ):
 
     if ctx.invoked_subcommand is not None:  # ← add this block
@@ -429,7 +498,7 @@ def main(
             console.print(f"[error]- {err}[/error]")
         sys.exit(1)
 
-    cli = SimhaCLI(config=config)
+    cli = SimhaCLI(config=config, resume_ref=resume_ref, continue_last=continue_last)
     try:
         if prompt:
             result = asyncio.run(cli.run_single(prompt))
