@@ -76,6 +76,7 @@ packages = [
 	"hooks",
 	"prompts",
 	"safety",
+	"server",
 	"tools",
 	"tools.builtin",
 	"tools.mcp",

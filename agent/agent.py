@@ -156,14 +156,6 @@ class Agent:
                 False,
             )
 
-        events.append(
-            AgentEvent.tool_call_start(
-                call_id=tool_call.call_id,
-                name=tool_call.name,
-                arguments=parsed_args,
-            )
-        )
-
         self.session.loop_detector.record_action(
             "tool_call",
             tool_name=tool_call.name,
@@ -241,6 +233,24 @@ class Agent:
             AgentEvent.tool_call_complete(tool_call.call_id, tool_call.name, result)
         )
         return (events, result_msg, False)
+
+    @staticmethod
+    def _tool_call_start_event(tool_call: ToolCall) -> AgentEvent | None:
+        """TOOL_CALL_START for a call that will actually run (valid name + JSON).
+
+        Emitted before execution so consumers can show a tool as running
+        (and before any approval prompt), not only once it has finished.
+        """
+        if not tool_call.name:
+            return None
+        parsed_args = parse_tool_call_arguments(tool_call.arguments or "")
+        if PARSE_ERROR_KEY in parsed_args:
+            return None
+        return AgentEvent.tool_call_start(
+            call_id=tool_call.call_id,
+            name=tool_call.name,
+            arguments=parsed_args,
+        )
 
     @staticmethod
     def _tool_exception_outcome(
@@ -420,6 +430,11 @@ class Agent:
             empty_retries = 0
 
             # --- Execute tool calls (parallel when >1, sequential for single) ---
+            for tool_call in tool_calls:
+                start_event = self._tool_call_start_event(tool_call)
+                if start_event:
+                    yield start_event
+
             outcomes: list[tuple[list[AgentEvent], ToolResultMessage | None, bool]] = []
 
             if len(tool_calls) == 1:

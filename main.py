@@ -512,5 +512,21 @@ def main(
 
 main.add_command(bot_group)
 
+
+@main.command("serve")
+@click.option(
+    "--cwd",
+    "-c",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Working directory for the agent (an initialize request may override it).",
+)
+@click.option("--verbose", is_flag=True, help="Log INFO messages to stderr.")
+def serve(cwd: Path | None, verbose: bool) -> None:
+    """Run SimhaCLI as a backend for editor extensions (JSON over stdin/stdout)."""
+    from server import run_server
+
+    run_server(cwd=cwd, verbose=verbose)
+
 if __name__ == "__main__":
     main()
