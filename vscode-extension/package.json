@@ -10,7 +10,7 @@
     "url": "https://github.com/naidu199/SimhaCLI"
   },
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.106.0"
   },
   "categories": [
     "AI",
@@ -18,7 +18,9 @@
     "Programming Languages"
   ],
   "main": "./dist/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
@@ -28,6 +30,13 @@
   },
   "contributes": {
     "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "simhacli-right",
+          "title": "SimhaCLI",
+          "icon": "media/simhacli.svg"
+        }
+      ],
       "activitybar": [
         {
           "id": "simhacli",
@@ -37,7 +46,7 @@
       ]
     },
     "views": {
-      "simhacli": [
+      "simhacli-right": [
         {
           "type": "webview",
           "id": "simhacli.chat",
@@ -46,6 +55,12 @@
       ]
     },
     "commands": [
+      {
+        "command": "simhacli.openChat",
+        "title": "Open Chat",
+        "category": "SimhaCLI",
+        "icon": "$(sparkle)"
+      },
       {
         "command": "simhacli.newChat",
         "title": "New Chat",
@@ -104,6 +119,16 @@
         "category": "SimhaCLI"
       },
       {
+        "command": "simhacli.moveChatLeft",
+        "title": "Move Chat to the Left Side Bar",
+        "category": "SimhaCLI"
+      },
+      {
+        "command": "simhacli.moveChatRight",
+        "title": "Move Chat to the Right Side Bar",
+        "category": "SimhaCLI"
+      },
+      {
         "command": "simhacli.restartBackend",
         "title": "Restart Backend",
         "category": "SimhaCLI"
@@ -129,6 +154,19 @@
           },
           "default": [],
           "markdownDescription": "Extra arguments placed before `serve`. For a source checkout: set `#simhacli.command#` to `python3` and this to `[\"${workspaceFolder}/main.py\"]`. `${workspaceFolder}` and `${userHome}` are expanded."
+        },
+        "simhacli.chatPosition": {
+          "type": "string",
+          "enum": [
+            "right",
+            "left"
+          ],
+          "enumDescriptions": [
+            "Secondary Side Bar, on the right of the editor (like Copilot Chat)",
+            "Primary Side Bar, in the Activity Bar on the left"
+          ],
+          "default": "right",
+          "markdownDescription": "Where the SimhaCLI chat appears. You can also drag the chat to either side yourself."
         }
       }
     },
@@ -158,6 +196,16 @@
           "command": "simhacli.setCredentials",
           "when": "view == simhacli.chat",
           "group": "settings@3"
+        },
+        {
+          "command": "simhacli.moveChatLeft",
+          "when": "view == simhacli.chat && config.simhacli.chatPosition != left",
+          "group": "layout@1"
+        },
+        {
+          "command": "simhacli.moveChatRight",
+          "when": "view == simhacli.chat && config.simhacli.chatPosition == left",
+          "group": "layout@1"
         },
         {
           "command": "simhacli.restartBackend",
@@ -233,7 +281,7 @@
   "devDependencies": {
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^20.19.0",
-    "@types/vscode": "~1.90.0",
+    "@types/vscode": "~1.106.0",
     "esbuild": "^0.28.2",
     "highlight.js": "^11.12.0",
     "markdown-it": "^14.3.2",

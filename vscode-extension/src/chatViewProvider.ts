@@ -68,6 +68,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, ApprovalSur
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
     this.ready = false;
+    void this.controller.ensureStarted();
     const mediaRoots = [
       vscode.Uri.joinPath(this.extensionUri, "dist"),
       vscode.Uri.joinPath(this.extensionUri, "media"),

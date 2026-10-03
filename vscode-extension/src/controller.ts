@@ -31,6 +31,9 @@ export class BackendController implements vscode.Disposable {
   private state: PanelState = { status: "starting" };
   private readonly disposables: vscode.Disposable[] = [];
   private approvalHandler: ApprovalHandler = askApprovalModal;
+  /** The backend starts lazily: when the chat opens or a command needs it. */
+  private started = false;
+  private starting: Promise<void> | undefined;
 
   private readonly stateEmitter = new vscode.EventEmitter<PanelState>();
   private readonly agentEventEmitter = new vscode.EventEmitter<AgentEventParams>();
@@ -48,11 +51,13 @@ export class BackendController implements vscode.Disposable {
       this.agentEventEmitter,
       this.turnFinishedEmitter,
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration("simhacli.command") || e.affectsConfiguration("simhacli.args")) {
+        if (this.started && (e.affectsConfiguration("simhacli.command") || e.affectsConfiguration("simhacli.args"))) {
           void this.restart();
         }
       }),
-      vscode.workspace.onDidChangeWorkspaceFolders(() => void this.restart()),
+      vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        if (this.started) void this.restart();
+      }),
     );
   }
 
@@ -134,8 +139,27 @@ export class BackendController implements vscode.Disposable {
   }
 
   async restart(): Promise<void> {
+    this.started = true;
     await this.stop();
     await this.start();
+  }
+
+  /** Start the backend if nothing has started it yet. */
+  ensureStarted(): Promise<void> {
+    if (!this.started) {
+      this.started = true;
+      this.starting = this.start();
+    }
+    return this.starting ?? Promise.resolve();
+  }
+
+  /** Wait (starting the backend if needed) until it's ready or has failed. */
+  private async untilSettled(timeoutMs = 60000): Promise<void> {
+    await this.ensureStarted();
+    const deadline = Date.now() + timeoutMs;
+    while (this.state.status === "starting" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
 
   /** Decide how approval requests are answered (defaults to a modal dialog). */
@@ -151,7 +175,10 @@ export class BackendController implements vscode.Disposable {
   }
 
   /** Any protocol request; rejects with a user-facing error if not ready. */
-  call<M extends MethodName>(method: M, params: Methods[M][0]): Promise<Methods[M][1]> {
+  async call<M extends MethodName>(method: M, params: Methods[M][0]): Promise<Methods[M][1]> {
+    if (this.state.status === "starting") {
+      await this.untilSettled();
+    }
     const backend = this.backend;
     if (!backend || this.state.status !== "ready") {
       return Promise.reject(new BackendError(this.state.detail ?? "SimhaCLI is not ready yet"));

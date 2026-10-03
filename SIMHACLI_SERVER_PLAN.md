@@ -254,6 +254,7 @@ Changes from the original list:
 - Fixed: paths shown absolute (e.g. `/private/var/...`) when the workspace is reached through a symlink; paths are now made relative to the backend's resolved cwd.
 - **UI redesign (after review):** welcome screen with suggestions; your messages as right-aligned bubbles and one grouped block per SimhaCLI reply; tool rows with readable labels ("Read app.py", "Run npm test"); a single composer box with model and mode chips; approval modes colored by risk (green: Always ask / Never run, blue: Ask / Auto-edit, orange: On failure / Auto-approve, red: YOLO) with an in-panel mode menu; chat history inside the panel (grouped by date, search, delete with confirmation). Verified with panel tests 50/50, integration 20/20, and screenshots in dark and light themes.
 - **Selection features (after review):** the composer tracks the active editor automatically: a selection (e.g. `main.py:33-46 · 14 lines`) is included with the next message by default, a plain file on one click; unsaved edits are sent as shown (`chat/send` attachments accept `content`). Modify / Review / Explain with SimhaCLI appear in the editor's code-action menu under Rewrite (next to Copilot's actions; VS Code reserves the ✨ icon itself for a proposed API) and in a SimhaCLI right-click submenu. The paperclip attaches any workspace files. Compact welcome list; the right-click tip is gone. Verified: server test 49/49 (rebuilt outside the repo), panel 60/60, selection integration 10/10, M4 integration 20/20, M3 integration 14/14.
+- **Chat position (after review):** opens on the right (Secondary Side Bar) like Copilot Chat; `simhacli.chatPosition` (`right`/`left`) and the commands *Move Chat to the Left/Right Side Bar* (also in the view's `…` menu) move it; users can still drag it. Minimum VS Code raised to 1.106. Verified: position integration 7/7 plus all earlier suites.
 
 ### M5: Polish & packaging
 
@@ -289,7 +290,8 @@ Changes from the original list:
 | 2026-10-02 | Transport: newline-delimited JSON over stdin/stdout |
 | 2026-10-02 | `tool_call_start` is emitted before a tool runs (agent change, benefits CLI and panel) |
 | 2026-10-02 | Serve mode redirects fd 0 to the null device and fd 1 to stderr at the OS level |
-| 2026-10-02 | Extension supports VS Code ≥ 1.90; disabled in untrusted workspaces |
+| 2026-10-02 | Extension disabled in untrusted workspaces |
+| 2026-10-02 | Chat lives in the right-hand Secondary Side Bar by default (`viewsContainers.secondarySidebar`), movable to the left via `simhacli.chatPosition` / Move Chat commands; requires VS Code ≥ 1.106 (older versions mis-handle that contribution) |
 | 2026-10-02 | Test code and test-only dependencies stay outside the repo |
 | 2026-10-02 | Approvals shown as cards in the chat panel (modal dialog only as fallback) |
 | 2026-10-02 | Activity-bar icon: terminal + AI sparkle, built from Lucide icons (ISC) |
