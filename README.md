@@ -364,10 +364,13 @@ Commands:
 
 ## 📝 Changelog
 
-### Unreleased
+### v1.6.0 (October 7, 2026)
 
 - **`simhacli serve`**: headless backend for editor extensions (newline-delimited JSON over stdin/stdout)
-- **VS Code extension** (`vscode-extension/`): sidebar chat, selection actions, approval cards with diff view, chat history, revert
+- **VS Code extension** (`vscode-extension/`, installed separately from its `.vsix`; needs SimhaCLI 1.6.0+): sidebar chat, selection actions, approval cards with diff view, chat history, revert
+- **Chats are saved automatically**; `/sessions`, `/history`, `/resume`, and `--resume` / `--continue` to pick one up again
+- **Safety fixes**: shell commands that need approval now prompt under the default policy; actions with no approval handler are denied; allow/deny tool lists are enforced; `..` paths can no longer escape the workspace; shell injection in the fullstack workflow closed
+- **Fixes**: orphaned tool calls no longer break a session, large tool output is no longer cleared before the model sees it, `/stats`, `/undo`, `/run` and config saving crashes, Python 3.10 support, wrong MCP package names for sequential-thinking and fetch
 - **Fixed**: `simhacli "<prompt>"` failed with "No such command" since the `bot` subcommand was added
 - Tool calls are reported as soon as they start (before approval), not only after they finish
 
