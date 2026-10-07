@@ -38,6 +38,8 @@
 | **Publish**           | `twine upload dist/*`              |
 | **Check schemas**     | `python scripts/check_schemas.py`  |
 | **Test tool**         | `python scripts/test_tool.py`      |
+| **Editor backend**    | `simhacli serve [--cwd PATH]`      |
+| **Build extension**   | `cd vscode-extension && npm install && npm run build` |
 
 No formal test suite or linting configuration exists in the repo.
 
@@ -202,6 +204,10 @@ main.py (SimhaCLI + main())
 | `utils/paths.py`            | Path utility functions                                       |
 | `scripts/check_schemas.py`  | Debug script for tool schema inspection                      |
 | `scripts/test_tool.py`      | Debug script for testing individual tools                    |
+| `server/`                   | `simhacli serve`: JSON-lines protocol for editor extensions  |
+| `services/`                 | Sessions, undo and settings logic shared by CLI and server   |
+| `vscode-extension/`         | VS Code extension (TypeScript) using `simhacli serve`        |
+| `SIMHACLI_SERVER_PLAN.md`   | Server protocol spec and extension build plan                |
 
 ---
 

@@ -1,7 +1,6 @@
 """Session commands: /save, /sessions, /history, /resume, /checkpoint, /restore."""
 
 from datetime import datetime
-import json
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +8,9 @@ from rich.markup import escape
 from rich.text import Text
 
 from .base import Command, CommandResult
-from agent.state import StateManager, SessionSnapshot, message_text
+from agent.state import StateManager, SessionSnapshot
+from services import sessions
+from services.sessions import SessionError
 
 SESSIONS_LIST_LIMIT = 20
 RESUME_PREVIEW_TURNS = 3
@@ -59,14 +60,8 @@ def _print_transcript(
     last_turns: int | None = None,
 ) -> None:
     """Print user/assistant messages; tool calls are summarised on one line."""
-    messages = [m for m in messages if m.get("role") in ("user", "assistant")]
-    if last_turns is not None:
-        user_indexes = [i for i, m in enumerate(messages) if m.get("role") == "user"]
-        if len(user_indexes) > last_turns:
-            messages = messages[user_indexes[-last_turns] :]
-
-    for msg in messages:
-        text = message_text(msg.get("content")).strip()
+    for msg in sessions.transcript(messages, last_turns=last_turns):
+        text = msg["text"]
         if len(text) > HISTORY_MESSAGE_MAX_CHARS:
             text = text[:HISTORY_MESSAGE_MAX_CHARS] + "\n… (truncated)"
 
@@ -79,51 +74,21 @@ def _print_transcript(
         if text:
             console.print("[bold magenta]SimhaCLI[/bold magenta]")
             console.print(Text(text))
-        for call in msg.get("tool_calls") or []:
-            function = call.get("function") or {}
-            name = function.get("name", "tool")
-            arguments = function.get("arguments") or ""
-            try:
-                parsed = json.loads(arguments) if arguments else {}
-                summary = ", ".join(
-                    f"{k}={str(v)[:40]}" for k, v in parsed.items()
-                ) if isinstance(parsed, dict) else str(parsed)[:80]
-            except ValueError:
-                summary = arguments[:80]
-            console.print(Text(f"  ↳ {name}({summary})", style="dim"))
-
-
-def _resolve_or_report(
-    state_manager: StateManager, ref: str
-) -> tuple[str | None, CommandResult | None]:
-    session_id = state_manager.resolve_session_id(ref)
-    if session_id is None:
-        return None, CommandResult(
-            success=False,
-            message=f"No saved session matches '{ref}'. Use /sessions to list them.",
-        )
-    return session_id, None
-
-
-def _save_current(agent: Any, config: Any) -> None:
-    """Persist the active conversation before switching away from it."""
-    session = agent.session
-    if session and session.has_conversation() and config.auto_save_sessions:
-        StateManager().save_session(session.to_snapshot())
+        for call in msg["toolCalls"]:
+            arguments = call["arguments"]
+            if isinstance(arguments, dict):
+                summary = ", ".join(f"{k}={str(v)[:40]}" for k, v in arguments.items())
+            else:
+                summary = str(arguments)[:80]
+            console.print(Text(f"  ↳ {call['name']}({summary})", style="dim"))
 
 
 def _switch_to_snapshot(
     agent: Any, config: Any, console: Any, snapshot: SessionSnapshot
 ) -> None:
-    _save_current(agent, config)
-    agent.session.restore_snapshot(snapshot)
-    agent.clear_undo_stack()
-
-    if snapshot.cwd and snapshot.cwd != str(Path(config.cwd).resolve()):
-        console.print(
-            f"[warning]This chat was started in {escape(snapshot.cwd)}; "
-            f"the agent is working in {escape(str(config.cwd))}.[/warning]"
-        )
+    warning = sessions.switch_to(agent, config, snapshot)
+    if warning:
+        console.print(f"[warning]{escape(warning)}[/warning]")
     _print_transcript(console, snapshot.messages, last_turns=RESUME_PREVIEW_TURNS)
     console.print()
 
@@ -161,7 +126,6 @@ class SessionsCommand(Command):
 
         agent = context.get("agent")
         config = context.get("config")
-        state_manager = StateManager()
         parts = args.split(maxsplit=1)
         subcommand = parts[0].lower() if parts else ""
 
@@ -170,27 +134,23 @@ class SessionsCommand(Command):
                 return CommandResult(
                     success=False, message="Usage: /sessions delete <number|id>"
                 )
-            session_id, error = _resolve_or_report(state_manager, parts[1])
-            if error:
-                return error
-            if agent and agent.session and session_id == agent.session.session_id:
-                return CommandResult(
-                    success=False,
-                    message="That is the current chat. Use /clear first, then delete it.",
-                )
-            state_manager.delete_session(session_id)
+            current_id = agent.session.session_id if agent and agent.session else None
+            try:
+                session_id = sessions.delete(parts[1], current_id)
+            except SessionError as e:
+                return CommandResult(success=False, message=str(e))
             console.print(f"[success]Deleted session {session_id[:8]}[/success]")
             return CommandResult(success=True)
 
-        sessions = state_manager.list_sessions()
-        if not sessions:
+        saved = sessions.list_sessions()
+        if not saved:
             console.print("[dim]No saved chats yet.[/dim]")
             return CommandResult(success=True)
 
         console.print("\n[bold]Saved chats[/bold] [dim](newest first)[/dim]")
         _print_sessions(
             console,
-            sessions,
+            saved,
             current_id=agent.session.session_id if agent and agent.session else None,
             cwd=config.cwd if config else None,
             limit=None if subcommand == "all" else SESSIONS_LIST_LIMIT,
@@ -222,20 +182,15 @@ class HistoryCommand(Command):
             messages = agent.session.context_manager.get_messages()
             title = "Current chat"
         else:
-            state_manager = StateManager()
-            session_id, error = _resolve_or_report(state_manager, args)
-            if error:
-                return error
-            snapshot = state_manager.load_session(session_id)
-            if not snapshot:
-                return CommandResult(
-                    success=False, message=f"Session does not exist: {args}"
-                )
+            try:
+                snapshot = sessions.load(args)
+            except SessionError as e:
+                return CommandResult(success=False, message=str(e))
             messages = snapshot.messages
-            title = snapshot.title or session_id[:8]
+            title = snapshot.title or snapshot.session_id[:8]
 
         console.print(f"\n[bold]{escape(title)}[/bold]")
-        if not any(m.get("role") == "user" for m in messages):
+        if not sessions.has_user_messages(messages):
             console.print("[dim]No messages yet.[/dim]")
             return CommandResult(success=True)
         _print_transcript(console, messages)
@@ -258,16 +213,15 @@ class ResumeCommand(Command):
         if not agent or not config or not console:
             return CommandResult(success=False, message="Missing context")
 
-        state_manager = StateManager()
         ref = args.strip()
         if not ref:
-            sessions = state_manager.list_sessions()
-            if not sessions:
+            saved = sessions.list_sessions()
+            if not saved:
                 return CommandResult(success=False, message="No saved chats yet.")
             console.print("\n[bold]Saved chats[/bold] [dim](newest first)[/dim]")
             _print_sessions(
                 console,
-                sessions,
+                saved,
                 current_id=agent.session.session_id,
                 cwd=config.cwd,
                 limit=SESSIONS_LIST_LIMIT,
@@ -282,20 +236,17 @@ class ResumeCommand(Command):
                 console.print("[dim]Cancelled.[/dim]")
                 return CommandResult(success=True)
 
-        session_id, error = _resolve_or_report(state_manager, ref)
-        if error:
-            return error
-        if session_id == agent.session.session_id:
+        try:
+            snapshot = sessions.load(ref)
+        except SessionError as e:
+            return CommandResult(success=False, message=str(e))
+        if snapshot.session_id == agent.session.session_id:
             console.print("[dim]Already in that chat.[/dim]")
             return CommandResult(success=True)
 
-        snapshot = state_manager.load_session(session_id)
-        if not snapshot:
-            return CommandResult(success=False, message=f"Session does not exist: {ref}")
-
         _switch_to_snapshot(agent, config, console, snapshot)
         console.print(
-            f"[success]Resumed: {escape(snapshot.title or session_id[:8])}[/success]"
+            f"[success]Resumed: {escape(snapshot.title or snapshot.session_id[:8])}[/success]"
         )
         return CommandResult(success=True)
 
