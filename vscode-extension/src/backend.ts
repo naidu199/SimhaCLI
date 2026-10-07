@@ -21,6 +21,8 @@ export interface BackendOptions {
   env?: NodeJS.ProcessEnv;
   /** Receives the server's stderr lines and protocol diagnostics. */
   log: (line: string) => void;
+  /** Receives only the server's stderr lines. */
+  stderr?: (line: string) => void;
 }
 
 export interface BackendExit {
@@ -44,6 +46,13 @@ export class BackendError extends Error {
 }
 
 type Listener<T> = (value: T) => void;
+
+const EXIT_GRACE_MS = 150;
+
+/** Quote an argument for cmd.exe (only used for .cmd/.bat commands on Windows). */
+export function quoteForCmd(arg: string): string {
+  return /[\s"&|<>^()%!]/.test(arg) ? `"${arg.replace(/"/g, '""')}"` : arg;
+}
 type RequestHandler = (method: string, params: unknown) => Promise<unknown>;
 
 interface Pending {
@@ -63,6 +72,9 @@ export class Backend {
   private requestHandler: RequestHandler | undefined;
   private stopping = false;
   private exited = false;
+  private markExitHandled!: () => void;
+  /** Resolves once the exit has been fully processed (listeners notified). */
+  private readonly exitHandled = new Promise<void>((resolve) => (this.markExitHandled = resolve));
 
   constructor(private readonly options: BackendOptions) {}
 
@@ -78,11 +90,14 @@ export class Backend {
     const fullArgs = [...args, "serve", "--cwd", cwd];
     log(`Starting: ${command} ${fullArgs.join(" ")}`);
 
-    const proc = spawn(command, fullArgs, {
+    // Windows can only run .cmd/.bat files through the shell
+    const viaShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
+    const proc = spawn(viaShell ? quoteForCmd(command) : command, viaShell ? fullArgs.map(quoteForCmd) : fullArgs, {
       cwd,
       env: { ...process.env, ...env, PYTHONUNBUFFERED: "1" },
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
+      shell: viaShell,
     });
     this.proc = proc;
 
@@ -91,7 +106,10 @@ export class Backend {
       .on("line", (line) => this.handleLine(line));
     readline
       .createInterface({ input: proc.stderr })
-      .on("line", (line) => log(line));
+      .on("line", (line) => {
+        log(line);
+        this.options.stderr?.(line);
+      });
 
     // Writing after the process died raises EPIPE asynchronously
     proc.stdin.on("error", (error) => log(`stdin error: ${error.message}`));
@@ -104,7 +122,8 @@ export class Backend {
       this.handleExit({ code: null, signal: null, error: message, expected: false });
     });
     proc.on("exit", (code, signal) => {
-      this.handleExit({ code, signal, expected: this.stopping });
+      // Give stderr a moment to deliver its last lines (used to explain the exit)
+      setTimeout(() => this.handleExit({ code, signal, expected: this.stopping }), EXIT_GRACE_MS);
     });
   }
 
@@ -151,16 +170,15 @@ export class Backend {
       return;
     }
     this.stopping = true;
-    const exited = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
     const timeout = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
     await Promise.race([this.request("shutdown", {}).catch(() => undefined), timeout(timeoutMs)]);
     proc.stdin.end();
-    await Promise.race([exited, timeout(timeoutMs)]);
-    if (!this.exited) {
+    await Promise.race([this.exitHandled, timeout(timeoutMs)]);
+    if (!this.exited && proc.exitCode === null && proc.signalCode === null) {
       proc.kill();
-      await Promise.race([exited, timeout(1000)]);
     }
+    await Promise.race([this.exitHandled, timeout(1000 + EXIT_GRACE_MS)]);
   }
 
   // -------------------------------------------------------------------------
@@ -253,5 +271,6 @@ export class Backend {
     for (const listener of this.exitListeners) {
       listener(exit);
     }
+    this.markExitHandled();
   }
 }

@@ -1,7 +1,7 @@
 # SimhaCLI Server & VS Code Extension: Build Plan (Phase 1)
 
 **Branch:** `feat/simhacli-server`
-**Status:** M1–M3 done; M4 complete (awaiting review); M5 next
+**Status:** Phase 1 complete (M1–M5). M5 awaiting review.
 
 Phase 1 brings SimhaCLI into VS Code as a sidebar chat panel. It runs the same agent as the CLI, with the same tools, approvals, saved chats, undo, config and API key. Phase 2 (inline code suggestions) is out of scope here.
 
@@ -139,6 +139,10 @@ vscode-extension/
     diffs.ts                # in-memory documents for the diff editor
     editorContext.ts        # active file / selection → attachment
     variables.ts            # ${workspaceFolder} / ${userHome} expansion in settings
+    editorTracker.ts        # active file / selection, tracked automatically
+    codeActions.ts          # Modify / Review / Explain with SimhaCLI
+    chatPosition.ts         # left / right placement
+    startupErrors.ts        # explains failed starts
     chatViewProvider.ts     # WebviewViewProvider, bridges panel ⇄ backend
     approvals.ts            # approval pop-ups + diff view
     webviewMessages.ts      # typed panel ⇄ extension message contract (design rule 5)
@@ -147,8 +151,8 @@ vscode-extension/
       markdown.ts           # markdown-it + highlight.js rendering
       tsconfig.json         # DOM typings for the panel only
   media/
-    chat.css  simhacli.svg
-  README.md
+    chat.css  simhacli.svg  icon.png
+  README.md  LICENSE  THIRD_PARTY_NOTICES.md
 ```
 
 ---
@@ -258,13 +262,32 @@ Changes from the original list:
 
 ### M5: Polish & packaging
 
-- [ ] **M5.1** Clear errors for: `simhacli` not found (with install hint), backend crash, protocol version mismatch
-- [ ] **M5.2** Extension `README.md`: install, settings, using a virtualenv's `simhacli`; third-party notice for the activity-bar icon (built from Lucide icons, ISC License)
-- [ ] **M5.3** Build a `.vsix` file with `vsce package` and install it into everyday VS Code
-- [ ] **M5.4** Update `AGENTS.md`, `README.md` and `SIMHACLI.md` with `simhacli serve` and the extension
-- [ ] **M5.5** Windows check: spawning `simhacli.exe`, stdin reader thread, path handling
+- [x] **M5.1** Clear errors for: `simhacli` not found (with install hint), backend crash, protocol version mismatch
+- [x] **M5.2** Extension `README.md`: install, settings, using a virtualenv's `simhacli`; third-party notice for the activity-bar icon (built from Lucide icons, ISC License)
+- [x] **M5.3** Build a `.vsix` file with `vsce package` and install it into everyday VS Code
+- [x] **M5.4** Update `AGENTS.md`, `README.md` and `SIMHACLI.md` with `simhacli serve` and the extension
+- [x] **M5.5** Windows check: spawning `simhacli.exe`, stdin reader thread, path handling
 
 **Done when:** the `.vsix` is installed in everyday VS Code and used for a real task end to end.
+
+**Result (2026-10-02):**
+- **M5.1** `startupErrors.ts` explains failed starts from the backend's last stderr lines: command not found (install hint), an old SimhaCLI without `serve` (update hint), a missing Python module, permission denied, or the actual error line. The protocol-version mismatch banner already existed. Verified in VS Code against the real old global `simhacli` 1.5.3 and a deliberately broken install.
+- **M5.2** `vscode-extension/README.md`, `LICENSE` (MIT), `THIRD_PARTY_NOTICES.md` generated from the license files of every bundled package (markdown-it, linkify-it, mdurl, uc.micro, punycode.js, entities, highlight.js) plus Lucide's ISC license; 128×128 `media/icon.png`.
+- **M5.3** `.vsix` packages cleanly with no warnings (11 files, ~147 KB: no source or node_modules) and installs with `code --install-extension`.
+- **M5.4** AGENTS.md, README.md and SIMHACLI.md document `simhacli serve`, `server/`, `services/` and the extension. The README's outdated CLI options are corrected, and an *Unreleased* changelog entry was added.
+- **M5.5** Windows: static review only (no Windows machine available). Fixed: `.cmd`/`.bat` values of `simhacli.command` are now run through the shell (Node can't spawn them directly). Reviewed OK: the server's fd handling (`os.dup2`, null device, binary protocol), Unix-only process-group kills, and paths. **Still to do:** a real run on Windows.
+- Also fixed: `Backend.stop()` now waits for the fully processed exit (it returned 150 ms early and killed an already-exited process).
+- Final regression: server 49/49, backend 15/15, startup errors 7/7, panel 60/60, and integration suites 14 + 20 + 10 + 7 + 5 + 3, all passing with no backend processes left behind.
+
+**Tests live outside the repo** (the user's choice), so the `scripts/serve_smoke_test.py` references in M1/M2 describe where the test lived at the time.
+
+## After Phase 1
+
+- Publish a SimhaCLI release to PyPI that includes `simhacli serve`; until then the extension needs a source checkout or editable install.
+- Packaging: the Python package installs generic top-level modules (`utils`, `config`, `tools`, `server`, `services`); move them under a `simhacli/` package before a wider release.
+- Test on Windows hardware.
+- VS Code Marketplace: publisher account and `vsce publish`.
+- Phase 2: inline code suggestions.
 
 ---
 

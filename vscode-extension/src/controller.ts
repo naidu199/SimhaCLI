@@ -18,13 +18,13 @@ import {
   ServerLogParams,
   TurnFinishedParams,
 } from "./protocol";
+import { explainExit } from "./startupErrors";
 import { expandVariables } from "./variables";
 import type { PanelState } from "./webviewMessages";
 
 export type ApprovalHandler = (request: ApprovalRequestParams) => Promise<boolean>;
 
-const INSTALL_HINT =
-  "Install SimhaCLI (pip install simhacli) or set the simhacli.command setting to its full path.";
+const STDERR_LINES_KEPT = 40;
 
 export class BackendController implements vscode.Disposable {
   private backend: Backend | undefined;
@@ -34,6 +34,9 @@ export class BackendController implements vscode.Disposable {
   /** The backend starts lazily: when the chat opens or a command needs it. */
   private started = false;
   private starting: Promise<void> | undefined;
+  /** Last stderr lines and readiness of the current backend, to explain an exit. */
+  private recentStderr: string[] = [];
+  private wasReady = false;
 
   private readonly stateEmitter = new vscode.EventEmitter<PanelState>();
   private readonly agentEventEmitter = new vscode.EventEmitter<AgentEventParams>();
@@ -83,8 +86,14 @@ export class BackendController implements vscode.Disposable {
       args: settings.get<string[]>("args", []).map((arg) => expandVariables(arg, variables)),
       cwd,
       log: (line) => this.output.appendLine(line),
+      stderr: (line) => {
+        this.recentStderr.push(line);
+        if (this.recentStderr.length > STDERR_LINES_KEPT) this.recentStderr.shift();
+      },
     });
     this.backend = backend;
+    this.recentStderr = [];
+    this.wasReady = false;
 
     backend.onNotification((method, params) => this.handleNotification(method, params));
     backend.onExit((exit) => this.handleExit(backend, exit));
@@ -107,6 +116,7 @@ export class BackendController implements vscode.Disposable {
       if (this.backend !== backend) {
         return; // restarted meanwhile
       }
+      this.wasReady = true;
       this.output.appendLine(
         `Connected to SimhaCLI ${info.serverVersion} (model ${info.model}, approval ${info.approval})`,
       );
@@ -255,9 +265,7 @@ export class BackendController implements vscode.Disposable {
     if (exit.expected) {
       return;
     }
-    const detail = exit.error
-      ? `${exit.error}. ${INSTALL_HINT}`
-      : `SimhaCLI stopped unexpectedly (exit code ${exit.code ?? exit.signal}).`;
+    const detail = explainExit(exit, this.recentStderr, this.wasReady);
     this.setState({ status: "stopped", detail });
 
     void vscode.window

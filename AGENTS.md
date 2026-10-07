@@ -18,6 +18,10 @@
 | **Publish to PyPI** | `twine upload dist/*` |
 | **Check tool schemas** | `python scripts/check_schemas.py` |
 | **Test a tool** | `python scripts/test_tool.py` |
+| **Run as editor backend** | `simhacli serve [--cwd PATH] [--verbose]` |
+| **Build VS Code extension** | `cd vscode-extension && npm install && npm run build` |
+| **Type-check extension** | `cd vscode-extension && npm run typecheck` |
+| **Package extension (.vsix)** | `cd vscode-extension && npx @vscode/vsce package --no-dependencies` |
 
 **Note**: No formal test suite or linting configuration exists. Manual testing via `simhacli` is standard.
 
@@ -233,6 +237,25 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
 - Config: `[mcp_servers.fetch]` with `command = "uvx"`, `args = ["mcp-server-fetch"]` (Python package; needs [uv](https://docs.astral.sh/uv/)). Not enabled by default — the built-in `web_fetch` tool covers the same need. There is no `@modelcontextprotocol/server-fetch` npm package
 - Optional tuning: `FETCH_MAX_RESPONSE_SIZE`, `FETCH_TIMEOUT_MS`
 
+### Editor Integration (`simhacli serve` + VS Code extension)
+
+- **`simhacli serve`** (`server/`) runs the agent without the TUI and speaks newline-delimited JSON over stdin/stdout. The protocol, design rules and milestone checklist are in `SIMHACLI_SERVER_PLAN.md`.
+  - `server/protocol.py`: JSON-lines framing. `take_over_stdio()` reserves fd 1 for the protocol (stdout → stderr) and points fd 0 at the null device so child processes can't read protocol messages.
+  - `server/agent_server.py`: `AgentServer` routes `initialize`, `chat/send` / `chat/cancel`, `sessions/*`, `config/get`, `model/set`, `approval/set`, `credentials/set`, `undo/*`, `shutdown`. It sends `agent/event`, `turn/finished` and `server/log` notifications and `approval/request` requests.
+  - `server/serialization.py`: agent events and approval requests → JSON (approvals carry `fileChange` before/after contents for diff views).
+  - `server/attachments.py`: builds the message from text, inline `@path` references and attachments (`{path, startLine?, endLine?, content?}`).
+  - Never `print()` or read stdin for prompts in code reachable from serve mode; config loads with `load_config(prompt_api=False)`.
+- **`services/`**: logic shared by the CLI commands and the server, returning data instead of printing: `sessions.py` (list/history/resume/new/delete), `undo.py` (list/revert), `settings.py` (model/approval/credentials).
+- **`vscode-extension/`** (TypeScript): the SimhaCLI sidebar chat.
+  - `backend.ts` spawns `simhacli serve` and is free of the `vscode` API.
+  - `controller.ts` owns the backend lifecycle; it starts lazily, when the chat opens or a command needs it.
+  - `chatViewProvider.ts` + `webview/` is the panel, which only talks to the extension through `webviewMessages.ts`.
+  - `editorTracker.ts` tracks the active file and selection.
+  - `codeActions.ts` adds Modify / Review / Explain with SimhaCLI.
+  - `chatPosition.ts` handles left/right placement.
+  - `startupErrors.ts` explains failed starts.
+  - The chat lives in the Secondary Side Bar (`viewsContainers.secondarySidebar`), so the extension requires VS Code ≥ 1.106.
+
 ### Workflow Automation
 
 - **Workflow engine**: `tools/workflow/engine.py` — step-based orchestration
@@ -360,6 +383,10 @@ System prompt automatically includes git context if in a git repo (`utils/git.py
 | `utils/file_attachments.py` | `@attach` file parsing and formatting |
 | `cli/` | Command system: `command_handler.py`, `factory.py`, `commands/` (20+ commands) |
 | `scripts/` | Debug scripts: `check_schemas.py`, `test_tool.py` |
+| `server/` | `simhacli serve`: JSON-lines protocol, `AgentServer`, serialization, attachments |
+| `services/` | Logic shared by CLI commands and the server (sessions, undo, settings) |
+| `vscode-extension/` | VS Code extension (TypeScript): sidebar chat backed by `simhacli serve` |
+| `SIMHACLI_SERVER_PLAN.md` | Protocol spec, design rules and checklist for the server and extension |
 | `pyproject.toml` | Project metadata, dependencies, setuptools config |
 | `README.md` | User-facing documentation |
 | `SIMHACLI.md` | Project-specific reference (this file's sibling) |
@@ -501,4 +528,4 @@ The agent's system prompt is built by `prompts/system.py:get_system_prompt()` an
 
 ---
 
-*Last updated: Based on SimhaCLI v1.5.3 codebase (October 2, 2026)*
+*Last updated: SimhaCLI v1.5.3 codebase plus the unreleased `simhacli serve` / VS Code extension work (October 2, 2026)*

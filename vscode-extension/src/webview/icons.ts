@@ -1,7 +1,5 @@
 // Inline SVG icons for the chat panel.
-// Paths from Lucide (https://lucide.dev), ISC License. Copyright (c) for
-// portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT);
-// all other copyright (c) for Lucide are held by Lucide Contributors 2022.
+// Paths from Lucide (https://lucide.dev), ISC License; see THIRD_PARTY_NOTICES.md.
 
 function svg(body: string, size = 16, extra = ""): string {
   return (

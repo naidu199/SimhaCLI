@@ -122,6 +122,14 @@ Works with MCP servers when configured, falls back to CLI tools automatically.
 - **Tool permissions** — `/permissions` command to manage tool access (allow/deny specific tools)
 - **Allowed/denied tools** — configure `allowed_tools` and `denied_tools` in config.toml
 
+### 🧩 VS Code Extension
+
+- **Sidebar chat** backed by the same agent (`simhacli serve`): same tools, approvals, saved chats, models and API key
+- **Selection-aware**: selected code is added to your message automatically, and **Modify / Review / Explain with SimhaCLI** appear in the editor's code-action menu
+- **Approval cards** with a real diff view, **Revert** for the latest changes, in-panel chat history, colour-coded approval modes
+- Opens on the right (Secondary Side Bar) and can move to the left. Requires VS Code 1.106+
+- See [`vscode-extension/README.md`](vscode-extension/README.md) for setup and settings
+
 ### 🚀 Project Initialization
 
 - **`/init` command** — deeply analyzes project structure and generates:
@@ -341,15 +349,27 @@ class MyTool(Tool):
 simhacli [OPTIONS] [PROMPT]
 
 Options:
-  --cwd PATH        Set working directory
-  --model TEXT      Override model name
-  --approval TEXT   Override approval policy
-  --help            Show this message and exit
+  -c, --cwd DIRECTORY  Set the working directory for the agent
+  -r, --resume ID      Continue a saved chat (number from /sessions, or session id / prefix)
+  --continue           Continue the most recent chat in this directory
+  -v, --version        Show the version and exit
+  --help               Show this message and exit
+
+Commands:
+  bot    Manage the SimhaCLI Telegram bot
+  serve  Run SimhaCLI as a backend for editor extensions (JSON over stdin/stdout)
 ```
 
 ---
 
 ## 📝 Changelog
+
+### Unreleased
+
+- **`simhacli serve`**: headless backend for editor extensions (newline-delimited JSON over stdin/stdout)
+- **VS Code extension** (`vscode-extension/`): sidebar chat, selection actions, approval cards with diff view, chat history, revert
+- **Fixed**: `simhacli "<prompt>"` failed with "No such command" since the `bot` subcommand was added
+- Tool calls are reported as soon as they start (before approval), not only after they finish
 
 ### v1.5.3 (October 2, 2026)
 
